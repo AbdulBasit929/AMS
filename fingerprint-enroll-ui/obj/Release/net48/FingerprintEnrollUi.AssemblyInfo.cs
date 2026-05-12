@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("FingerprintEnrollUi")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e2c332f0d315407787e835cbe6c578191b56fbd6")]
 [assembly: System.Reflection.AssemblyProductAttribute("FingerprintEnrollUi")]
 [assembly: System.Reflection.AssemblyTitleAttribute("FingerprintEnrollUi")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

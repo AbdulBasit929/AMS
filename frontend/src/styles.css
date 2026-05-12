@@ -759,6 +759,51 @@ tbody td span { font-size: 11px; color: var(--text-muted); font-family: var(--fo
 .empty-state p { font-size: 13px; max-width: 220px; line-height: 1.5; }
 
 /* ─── RESPONSIVE ─────────────────────────────────────────────────────────── */
+.camera-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+
+.camera-select {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 240px;
+}
+
+.camera-select span {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+
+.sample-count {
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding-bottom: 8px;
+}
+
+.sample-strip {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+}
+
+.sample-thumb {
+  width: 88px;
+  height: 66px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
 @media (max-width: 1100px) {
   .station-grid { grid-template-columns: 1fr; }
   .employees-layout { grid-template-columns: 1fr; }

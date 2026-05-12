@@ -490,17 +490,17 @@ router.post("/fingerprint/mark-attendance", async (req, res) => {
 });
 
 router.post("/face/enroll", async (req, res) => {
-  const { employeeId, imageBase64 } = req.body;
+  const { employeeId, imageBase64, samples = [], profileImage = null } = req.body;
 
-  if (!employeeId || !imageBase64) {
-    return res.status(400).json({ message: "employeeId and imageBase64 are required" });
+  if (!employeeId || (!imageBase64 && (!Array.isArray(samples) || samples.length === 0))) {
+    return res.status(400).json({ message: "employeeId and imageBase64 or samples are required" });
   }
 
   try {
     const response = await fetch(`${process.env.FACE_SERVICE_URL || "http://127.0.0.1:5000"}/enroll-face`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ employeeId, imageBase64 })
+      body: JSON.stringify({ employeeId, imageBase64, samples })
     });
 
     const data = await response.json();
@@ -509,11 +509,23 @@ router.post("/face/enroll", async (req, res) => {
       return res.status(response.status).json(data);
     }
 
+    const faceProfile = {
+      version: "2.0",
+      provider: "face_recognition",
+      threshold: data.threshold ?? null,
+      sampleCount: data.sampleCount ?? 1,
+      encodings: data.faceEncodings || (data.faceEncoding ? [data.faceEncoding] : []),
+      averagedEncoding: data.faceEncoding || null,
+      qualitySummary: data.qualitySummary || null,
+      rejectedSamples: data.rejectedSamples || [],
+      enrolledAt: new Date().toISOString()
+    };
+
     await pool.query(
       `UPDATE employees
        SET face_encoding = ?, profile_image = COALESCE(?, profile_image)
        WHERE id = ?`,
-      [JSON.stringify(data.faceEncoding), data.profileImage || null, employeeId]
+      [JSON.stringify(faceProfile), profileImage || data.profileImage || null, employeeId]
     );
 
     await logAudit({
@@ -523,14 +535,18 @@ router.post("/face/enroll", async (req, res) => {
       summary: `Face encoding enrolled for employee #${employeeId}.`,
       metadata: {
         employeeId,
-        faceEncodingLength: Array.isArray(data.faceEncoding) ? data.faceEncoding.length : null
+        sampleCount: faceProfile.sampleCount,
+        rejectedSamples: faceProfile.rejectedSamples.length,
+        threshold: faceProfile.threshold
       }
     });
 
     res.json({
       status: "enrolled",
       employeeId,
-      faceEncodingLength: Array.isArray(data.faceEncoding) ? data.faceEncoding.length : null
+      sampleCount: faceProfile.sampleCount,
+      qualitySummary: faceProfile.qualitySummary,
+      rejectedSamples: faceProfile.rejectedSamples
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -555,12 +571,25 @@ router.post("/face/verify", async (req, res) => {
       return res.status(400).json({ message: "no employees have enrolled faces yet" });
     }
 
-    const candidates = employees.map((employee) => ({
-      employeeId: employee.id,
-      name: employee.name,
-      cnic: employee.cnic,
-      faceEncoding: JSON.parse(employee.face_encoding)
-    }));
+    const candidates = employees.map((employee) => {
+      const parsed = JSON.parse(employee.face_encoding);
+      const faceProfile = Array.isArray(parsed)
+        ? {
+            averagedEncoding: parsed,
+            encodings: [parsed],
+            version: "1.0"
+          }
+        : parsed;
+
+      return {
+        employeeId: employee.id,
+        name: employee.name,
+        cnic: employee.cnic,
+        faceEncoding: faceProfile?.averagedEncoding || null,
+        faceEncodings: Array.isArray(faceProfile?.encodings) ? faceProfile.encodings : [],
+        faceProfile
+      };
+    });
 
     const response = await fetch(`${process.env.FACE_SERVICE_URL || "http://127.0.0.1:5000"}/verify-face`, {
       method: "POST",
@@ -601,6 +630,7 @@ router.post("/face/verify", async (req, res) => {
       status: "matched",
       employee,
       score: data.score ?? null,
+      confidence: data.confidence ?? null,
       attendance
     });
   } catch (error) {

@@ -184,6 +184,26 @@ function fingerLabel(code) {
   return (code || "").split("_").filter(Boolean).map(p => p[0].toUpperCase() + p.slice(1)).join(" ");
 }
 
+function choosePreferredCamera(devices = []) {
+  if (!devices.length) return "";
+  const preferred = devices.find((device) => /logitech|logi|hd 1080|c920|c922/i.test(device.label || ""));
+  return preferred?.deviceId || devices[0].deviceId || "";
+}
+
+async function loadVideoInputs() {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  return devices.filter((device) => device.kind === "videoinput");
+}
+
+function captureVideoFrame(video) {
+  if (!video) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth || 1280;
+  canvas.height = video.videoHeight || 720;
+  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.92);
+}
+
 /* ─── BANNER ──────────────────────────────────────────────────────────────── */
 function Banner({ type = "info", children, onClose }) {
   const icons = { info: Icon.Info, success: Icon.CheckCircle, warning: Icon.AlertTriangle, danger: Icon.AlertTriangle };
@@ -558,15 +578,28 @@ function StationView({ token, stationStatus, latestEvent, conflictCount, station
   const [camActive, setCamActive] = useState(false);
   const [camErr, setCamErr] = useState("");
   const [faceMsg, setFaceMsg] = useState("");
+  const [videoDevices, setVideoDevices] = useState([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState("");
+  const [faceSamples, setFaceSamples] = useState([]);
   const [faceLoading, setFaceLoading] = useState(false);
+
+  const syncDevices = useCallback(async () => {
+    const devices = await loadVideoInputs();
+    setVideoDevices(devices);
+    setSelectedDeviceId((current) => current || choosePreferredCamera(devices));
+  }, []);
 
   async function startCam() {
     setCamErr("");
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1920 } }, audio: false });
+      const constraints = selectedDeviceId
+        ? { video: { deviceId: { exact: selectedDeviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false }
+        : { video: { width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false };
+      const s = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = s;
       if (videoRef.current) videoRef.current.srcObject = s;
       setCamActive(true);
+      await syncDevices();
     } catch (e) { setCamErr(e.message); }
   }
 
@@ -578,12 +611,7 @@ function StationView({ token, stationStatus, latestEvent, conflictCount, station
   }
 
   function captureFrame() {
-    if (!videoRef.current) return null;
-    const v = videoRef.current;
-    const c = document.createElement("canvas");
-    c.width = v.videoWidth || 1280; c.height = v.videoHeight || 720;
-    c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
-    return c.toDataURL("image/jpeg", 0.92);
+    return captureVideoFrame(videoRef.current);
   }
 
   async function verifyFace() {
@@ -592,11 +620,20 @@ function StationView({ token, stationStatus, latestEvent, conflictCount, station
     setFaceLoading(true); setFaceMsg("");
     const res = await api("/api/biometrics/face/verify", { method: "POST", body: JSON.stringify({ imageBase64: img }) }, token);
     setFaceLoading(false);
-    setFaceMsg(res.data.message || res.data.status || "Face verification complete.");
+    if (res.ok) {
+      setFaceMsg(
+        `Matched ${res.data.employee?.name || "employee"} with confidence ${Math.round((res.data.confidence || 0) * 100)}%. Attendance action: ${res.data.attendance?.action || "recorded"}.`
+      );
+    } else {
+      setFaceMsg(res.data.message || res.data.status || "Face verification complete.");
+    }
     if (res.ok) onRefresh();
   }
 
-  useEffect(() => () => stopCam(), []);
+  useEffect(() => {
+    syncDevices().catch(() => {});
+    return () => stopCam();
+  }, [syncDevices]);
 
   const eventTone = latestEvent?.event_type === "attendance.check_in" ? "success"
     : latestEvent?.event_type === "attendance.check_out" ? "warning"
@@ -715,6 +752,20 @@ function StationView({ token, stationStatus, latestEvent, conflictCount, station
             {camErr && <Banner type="danger">{camErr}</Banner>}
             {faceMsg && <Banner type={faceMsg.includes("match") || faceMsg.includes("enrolled") ? "success" : "info"}>{faceMsg}</Banner>}
 
+            <div className="camera-toolbar">
+              <label className="camera-select">
+                <span>Camera</span>
+                <select value={selectedDeviceId} onChange={e => setSelectedDeviceId(e.target.value)}>
+                  <option value="">Auto-select Logitech HD 1080p</option>
+                  {videoDevices.map(device => (
+                    <option key={device.deviceId} value={device.deviceId}>
+                      {device.label || `Camera ${device.deviceId.slice(0, 6)}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {!camActive
                 ? <button className="btn btn-secondary" onClick={startCam}><Icon.Camera />Start Camera</button>
@@ -750,6 +801,9 @@ function EmployeesView({ token, employees, onRefreshEmployees }) {
   const [camActive, setCamActive] = useState(false);
   const [camErr, setCamErr] = useState("");
   const [faceMsg, setFaceMsg] = useState("");
+  const [videoDevices, setVideoDevices] = useState([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState("");
+  const [faceSamples, setFaceSamples] = useState([]);
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
@@ -838,10 +892,16 @@ function EmployeesView({ token, employees, onRefreshEmployees }) {
   async function startCam() {
     setCamErr("");
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1920 } }, audio: false });
+      const constraints = selectedDeviceId
+        ? { video: { deviceId: { exact: selectedDeviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false }
+        : { video: { width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false };
+      const s = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = s;
       if (videoRef.current) videoRef.current.srcObject = s;
       setCamActive(true);
+      const devices = await loadVideoInputs();
+      setVideoDevices(devices);
+      setSelectedDeviceId((current) => current || choosePreferredCamera(devices));
     } catch (e) { setCamErr(e.message); }
   }
   function stopCam() {
@@ -853,18 +913,59 @@ function EmployeesView({ token, employees, onRefreshEmployees }) {
 
   async function enrollFace() {
     if (!selected?.id) { setFaceMsg("Select an employee first."); return; }
-    if (!videoRef.current) { setFaceMsg("Start the camera first."); return; }
-    const v = videoRef.current;
-    const c = document.createElement("canvas");
-    c.width = v.videoWidth || 1280; c.height = v.videoHeight || 720;
-    c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
-    const img = c.toDataURL("image/jpeg", 0.92);
-    const res = await api("/api/biometrics/face/enroll", { method: "POST", body: JSON.stringify({ employeeId: selected.id, imageBase64: img, profileImage: img }) }, token);
-    setFaceMsg(res.data.message || res.data.status || "Done.");
-    if (res.ok) onRefreshEmployees();
+    const currentFrame = captureVideoFrame(videoRef.current);
+    const samples = faceSamples.length > 0 ? faceSamples : (currentFrame ? [currentFrame] : []);
+    if (samples.length === 0) { setFaceMsg("Start the camera and capture at least one face sample."); return; }
+
+    const res = await api("/api/biometrics/face/enroll", {
+      method: "POST",
+      body: JSON.stringify({
+        employeeId: selected.id,
+        samples,
+        profileImage: samples[0]
+      })
+    }, token);
+
+    if (res.ok) {
+      const sampleCount = res.data.sampleCount || samples.length;
+      const rejected = res.data.rejectedSamples?.length || 0;
+      setFaceMsg(`Face enrolled with ${sampleCount} accepted sample(s)${rejected ? ` and ${rejected} rejected sample(s)` : ""}.`);
+      setFaceSamples([]);
+      await onRefreshEmployees();
+      const fresh = await api(`/api/employees/${selected.id}`, {}, token);
+      if (fresh.ok) {
+        await loadEmployee(fresh.data);
+      }
+      return;
+    }
+
+    const rejectedText = Array.isArray(res.data.rejectedSamples) && res.data.rejectedSamples.length > 0
+      ? ` Rejections: ${res.data.rejectedSamples.map((sample) => `#${sample.sampleIndex} ${sample.message}`).join(" | ")}`
+      : "";
+    setFaceMsg(`${res.data.message || res.data.status || "Done."}${rejectedText}`);
   }
 
-  useEffect(() => () => stopCam(), []);
+  function captureFaceSample() {
+    const frame = captureVideoFrame(videoRef.current);
+    if (!frame) {
+      setFaceMsg("Start the camera first.");
+      return;
+    }
+
+    setFaceSamples((current) => [...current.slice(-3), frame]);
+    setFaceMsg(`Captured ${Math.min(faceSamples.length + 1, 4)} face sample(s). Capture at least 3 for stronger enrollment.`);
+  }
+
+  useEffect(() => {
+    loadVideoInputs()
+      .then((devices) => {
+        setVideoDevices(devices);
+        setSelectedDeviceId((current) => current || choosePreferredCamera(devices));
+      })
+      .catch(() => {});
+
+    return () => stopCam();
+  }, []);
 
   const conflictCount = (conflicts.exactDuplicates?.length || 0) + (conflicts.recentConflicts?.length || 0);
 
@@ -1105,10 +1206,39 @@ function EmployeesView({ token, employees, onRefreshEmployees }) {
                   </div>
                   {camErr && <Banner type="danger">{camErr}</Banner>}
                   {faceMsg && <Banner type="info">{faceMsg}</Banner>}
+                  <div className="camera-toolbar">
+                    <label className="camera-select">
+                      <span>Camera</span>
+                      <select value={selectedDeviceId} onChange={e => setSelectedDeviceId(e.target.value)}>
+                        <option value="">Auto-select Logitech HD 1080p</option>
+                        {videoDevices.map(device => (
+                          <option key={device.deviceId} value={device.deviceId}>
+                            {device.label || `Camera ${device.deviceId.slice(0, 6)}`}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="sample-count">
+                      Samples: <strong>{faceSamples.length}</strong> / 4
+                    </div>
+                  </div>
+                  {faceSamples.length > 0 && (
+                    <div className="sample-strip">
+                      {faceSamples.map((sample, index) => (
+                        <img key={`${index}-${sample.length}`} src={sample} alt={`Face sample ${index + 1}`} className="sample-thumb" />
+                      ))}
+                    </div>
+                  )}
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {!camActive
                       ? <button className="btn btn-secondary btn-sm" onClick={startCam}><Icon.Camera />Start Camera</button>
                       : <button className="btn btn-ghost btn-sm" onClick={stopCam}><Icon.CameraOff />Stop</button>}
+                    <button className="btn btn-secondary btn-sm" onClick={captureFaceSample} disabled={!camActive}>
+                      <Icon.Camera />Capture Sample
+                    </button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setFaceSamples([])} disabled={faceSamples.length === 0}>
+                      <Icon.Trash />Clear Samples
+                    </button>
                     <button className="btn btn-primary btn-sm" onClick={enrollFace} disabled={!camActive}>
                       <Icon.Face />Enroll Face
                     </button>

@@ -15,3 +15,4 @@ C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\fingerprint-enrol
 C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\fingerprint-enroll-ui\obj\Release\net48\FingerprintEnrollUi.exe
 C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\fingerprint-enroll-ui\obj\Release\net48\FingerprintEnrollUi.pdb
 C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\fingerprint-enroll-ui\bin\Release\net48\DPFPVerNET.dll
+C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\fingerprint-enroll-ui\obj\Release\net48\FingerprintEnrollUi.sourcelink.json
