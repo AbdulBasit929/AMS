@@ -1,0 +1,15 @@
+C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\biometric-bridge-dotnet\bin\Release\net48\FingerprintBridge.exe.config
+C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\biometric-bridge-dotnet\bin\Release\net48\FingerprintBridge.exe
+C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\biometric-bridge-dotnet\bin\Release\net48\FingerprintBridge.pdb
+C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\biometric-bridge-dotnet\bin\Release\net48\DPFPDevNET.dll
+C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\biometric-bridge-dotnet\bin\Release\net48\DPFPEngNET.dll
+C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\biometric-bridge-dotnet\bin\Release\net48\DPFPShrNET.dll
+C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\biometric-bridge-dotnet\bin\Release\net48\DPFPVerNET.dll
+C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\biometric-bridge-dotnet\obj\Release\net48\FingerprintBridge.csproj.AssemblyReference.cache
+C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\biometric-bridge-dotnet\obj\Release\net48\FingerprintBridge.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\biometric-bridge-dotnet\obj\Release\net48\FingerprintBridge.AssemblyInfoInputs.cache
+C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\biometric-bridge-dotnet\obj\Release\net48\FingerprintBridge.AssemblyInfo.cs
+C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\biometric-bridge-dotnet\obj\Release\net48\FingerprintBridge.csproj.CoreCompileInputs.cache
+C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\biometric-bridge-dotnet\obj\Release\net48\Fingerpr.836082F7.Up2Date
+C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\biometric-bridge-dotnet\obj\Release\net48\FingerprintBridge.exe
+C:\Users\W S Mughal\Downloads\DigitalPersona\attendance-system\biometric-bridge-dotnet\obj\Release\net48\FingerprintBridge.pdb

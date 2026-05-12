@@ -1,0 +1,38 @@
+# Node
+node_modules/
+dist/
+build/
+
+# Environment files
+.env
+.env.*
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Logs
+*.log
+
+# Coverage
+coverage/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Docker
+*.pid
+
+# Database
+*.sqlite3
+
+# Misc
+*.class
+*.jar
