@@ -1,1159 +1,1522 @@
-import { useEffect, useMemo, useRef, useState } from "react";
 
-const apiBaseUrl = "http://127.0.0.1:4000";
-const defaultCredentials = {
-  email: "admin@attendance.local",
-  password: "Admin@12345"
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+
+const API = "http://127.0.0.1:4000";
+const DEFAULT_CREDS = { email: "admin@attendance.local", password: "Admin@12345" };
+
+/* ─── ICONS (inline SVG) ──────────────────────────────────────────────────── */
+const Icon = {
+  Logo: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+    </svg>
+  ),
+  Dashboard: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
+      <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
+    </svg>
+  ),
+  Station: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+    </svg>
+  ),
+  Employees: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>
+  ),
+  Reports: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+      <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+    </svg>
+  ),
+  Audit: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+    </svg>
+  ),
+  ChevronLeft: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="15 18 9 12 15 6"/>
+    </svg>
+  ),
+  LogOut: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+    </svg>
+  ),
+  Menu: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+    </svg>
+  ),
+  Refresh: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+    </svg>
+  ),
+  Download: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+    </svg>
+  ),
+  Plus: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+    </svg>
+  ),
+  Fingerprint: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 10a2 2 0 0 0-2 2c0 1.02.15 2.12.4 3.14"/><path d="M12 6a6 6 0 0 1 6 6c0 1.25-.2 2.45-.57 3.57"/>
+      <path d="M12 2a10 10 0 0 1 10 10c0 1.64-.31 3.21-.87 4.65"/><path d="M12 14c0 2 .51 4 1.33 5.5"/>
+      <path d="M9.56 17.56C9.22 16.43 9 15.22 9 14c0-1.66 1.34-3 3-3"/>
+      <path d="M6.14 15.1C6.05 14.74 6 14.38 6 14a6 6 0 0 1 6-6"/>
+      <path d="M3.08 12.93A10 10 0 0 0 3 14c0 1.05.11 2.08.31 3.07"/>
+    </svg>
+  ),
+  Face: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>
+    </svg>
+  ),
+  Camera: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>
+    </svg>
+  ),
+  CameraOff: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="1" y1="1" x2="23" y2="23"/><path d="M21 21H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3m3-3h6l2 3h4a2 2 0 0 1 2 2v9.34m-7.72-2.06a4 4 0 1 1-5.56-5.56"/>
+    </svg>
+  ),
+  Users: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>
+  ),
+  Shield: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </svg>
+  ),
+  Clock: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+    </svg>
+  ),
+  AlertTriangle: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+    </svg>
+  ),
+  CheckCircle: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+    </svg>
+  ),
+  Info: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+    </svg>
+  ),
+  Trash: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+    </svg>
+  ),
+  Star: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+    </svg>
+  ),
+  TrendUp: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
+    </svg>
+  ),
+  Activity: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+    </svg>
+  ),
 };
 
-function formatFingerLabel(fingerCode) {
-  return (fingerCode || "")
-    .split("_")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function buildStationEvent(auditRow) {
-  if (!auditRow) {
-    return null;
-  }
-
-  const tone =
-    auditRow.event_type === "attendance.check_in"
-      ? "success"
-      : auditRow.event_type === "attendance.check_out"
-        ? "warning"
-        : auditRow.event_type === "attendance.already_closed"
-          ? "danger"
-          : "info";
-
-  const label =
-    auditRow.event_type === "attendance.check_in"
-      ? "Check-In Recorded"
-      : auditRow.event_type === "attendance.check_out"
-        ? "Check-Out Recorded"
-        : auditRow.event_type === "attendance.already_closed"
-          ? "Attendance Closed"
-          : "Attendance Event";
-
-  return {
-    tone,
-    label,
-    summary: auditRow.summary,
-    when: auditRow.created_at
-  };
-}
-
-async function callApi(path, options = {}, token) {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+/* ─── HELPERS ─────────────────────────────────────────────────────────────── */
+async function api(path, opts = {}, token) {
+  const res = await fetch(`${API}${path}`, {
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {})
+      ...(opts.headers || {}),
     },
-    ...options
+    ...opts,
   });
-
-  const contentType = response.headers.get("content-type") || "";
-  const data = contentType.includes("application/json")
-    ? await response.json()
-    : { message: await response.text() };
-
-  return { ok: response.ok, status: response.status, data };
+  const ct = res.headers.get("content-type") || "";
+  const data = ct.includes("application/json")
+    ? await res.json()
+    : { message: await res.text() };
+  return { ok: res.ok, status: res.status, data };
 }
 
-function MetricCard({ label, value, tone = "neutral", helper }) {
+function initials(name = "") {
+  return name.split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase();
+}
+
+function fmtTime(dt) {
+  if (!dt) return "—";
+  return new Date(dt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+function fmtDate(dt) {
+  if (!dt) return "—";
+  return new Date(dt).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+}
+function fmtDT(dt) {
+  if (!dt) return "—";
+  return new Date(dt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function fingerLabel(code) {
+  return (code || "").split("_").filter(Boolean).map(p => p[0].toUpperCase() + p.slice(1)).join(" ");
+}
+
+/* ─── BANNER ──────────────────────────────────────────────────────────────── */
+function Banner({ type = "info", children, onClose }) {
+  const icons = { info: Icon.Info, success: Icon.CheckCircle, warning: Icon.AlertTriangle, danger: Icon.AlertTriangle };
+  const Ic = icons[type] || Icon.Info;
   return (
-    <article className={`metric-card metric-card--${tone}`}>
-      <p className="metric-card__label">{label}</p>
-      <strong className="metric-card__value">{value}</strong>
-      {helper ? <p className="metric-card__helper">{helper}</p> : null}
-    </article>
+    <div className={`banner banner-${type}`}>
+      <Ic /><span style={{ flex: 1 }}>{children}</span>
+      {onClose && <button className="btn btn-ghost btn-sm" style={{ padding: "2px 6px" }} onClick={onClose}>✕</button>}
+    </div>
   );
 }
 
+/* ─── METRIC CARD ─────────────────────────────────────────────────────────── */
+function MetricCard({ label, value, tone = "", helper, icon: Ic }) {
+  return (
+    <div className={`metric-card ${tone}`}>
+      <div className="metric-icon">{Ic ? <Ic /> : null}</div>
+      <div className="metric-value">{value ?? "—"}</div>
+      <div className="metric-label">{label}</div>
+      {helper && <div className="metric-helper">{helper}</div>}
+    </div>
+  );
+}
+
+/* ─── SERVICE PILL ────────────────────────────────────────────────────────── */
 function ServicePill({ label, status, message }) {
-  const tone =
-    status === "ok"
-      ? "success"
-      : status === "warning" || status === "todo" || status === "loading"
-        ? "warning"
-        : "danger";
+  const tone = status === "ok" ? "ok" : status === "warning" || status === "loading" ? "warn" : "err";
   return (
-    <article className={`service-pill service-pill--${tone}`}>
-      <div>
-        <p className="service-pill__label">{label}</p>
-        <strong className="service-pill__status">{status}</strong>
-      </div>
-      <p className="service-pill__message">{message}</p>
-    </article>
+    <div className={`service-pill ${tone}`}>
+      <span className="spill-dot" />
+      <span className="spill-name">{label}</span>
+      <span className="spill-stat">{status}</span>
+      {message && <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 4 }}>· {message.slice(0, 48)}</span>}
+    </div>
   );
 }
 
-function App() {
-  const [token, setToken] = useState(() => localStorage.getItem("attendance_token") || "");
-  const [user, setUser] = useState(null);
-  const [activeView, setActiveView] = useState("dashboard");
-  const [authForm, setAuthForm] = useState(defaultCredentials);
-  const [authError, setAuthError] = useState("");
-  const [loadingAuth, setLoadingAuth] = useState(false);
+/* ════════════════════════════════════════════════════════════════════════════
+   AUTH PAGE
+═══════════════════════════════════════════════════════════════════════════ */
+function AuthPage({ onLogin }) {
+  const [form, setForm] = useState(DEFAULT_CREDS);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const [overview, setOverview] = useState(null);
-  const [attendanceRows, setAttendanceRows] = useState([]);
-  const [auditRows, setAuditRows] = useState([]);
-  const [latestStationEvent, setLatestStationEvent] = useState(null);
-  const [fingerprintConflicts, setFingerprintConflicts] = useState({ exactDuplicates: [], recentConflicts: [] });
-  const [employees, setEmployees] = useState([]);
-  const [selectedEmployee, setSelectedEmployee] = useState(null);
-  const [employeeHistory, setEmployeeHistory] = useState([]);
-  const [employeeFingerprints, setEmployeeFingerprints] = useState([]);
-  const [fingerprintPlan, setFingerprintPlan] = useState(null);
-  const [selectedEmployeeConflicts, setSelectedEmployeeConflicts] = useState({ exactDuplicates: [], recentConflicts: [] });
-  const [reportsFilter, setReportsFilter] = useState({
-    dateFrom: "",
-    dateTo: "",
-    method: "",
-    status: ""
-  });
-  const [stationStatus, setStationStatus] = useState({
-    fingerprint: { status: "loading", message: "Checking fingerprint desktop verifier..." },
-    face: { status: "loading", message: "Checking face service..." }
-  });
-  const [stationMessage, setStationMessage] = useState("");
-  const [employeeForm, setEmployeeForm] = useState({
-    id: null,
-    employeeCode: "",
-    name: "",
-    cnic: "",
-    department: "",
-    designation: "",
-    status: "active",
-    profileImage: ""
-  });
-
-  const [cameraActive, setCameraActive] = useState(false);
-  const [cameraError, setCameraError] = useState("");
-  const [faceActionMessage, setFaceActionMessage] = useState("");
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
-
-  const navigation = useMemo(() => {
-    const tabs = [
-      { id: "dashboard", label: "Dashboard" },
-      { id: "station", label: "Attendance Station" },
-      { id: "reports", label: "Reports" }
-    ];
-
-    if (user?.role === "admin" || user?.role === "operator") {
-      tabs.splice(2, 0, { id: "employees", label: "Employees" });
-    }
-
-    return tabs;
-  }, [user]);
-
-  useEffect(() => {
-    if (!token) {
-      setUser(null);
-      return;
-    }
-
-    let cancelled = false;
-
-    async function loadMe() {
-      const result = await callApi("/api/auth/me", {}, token);
-      if (cancelled) {
-        return;
-      }
-
-      if (!result.ok) {
-        localStorage.removeItem("attendance_token");
-        setToken("");
-        setUser(null);
-        setAuthError("Session expired. Please log in again.");
-        return;
-      }
-
-      setUser(result.data);
-    }
-
-    loadMe();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
-
-  useEffect(() => {
-    if (!user) {
-      return;
-    }
-
-    refreshOverview();
-    refreshEmployees();
-    refreshAttendanceReports();
-    refreshStationStatus();
-    refreshFingerprintConflicts();
-  }, [user]);
-
-  useEffect(() => {
-    setLatestStationEvent(buildStationEvent(auditRows.find((row) => row.event_type?.startsWith("attendance."))));
-  }, [auditRows]);
-
-  useEffect(() => {
-    if (!user || activeView !== "station") {
-      return undefined;
-    }
-
-    const interval = window.setInterval(() => {
-      refreshOverview();
-      refreshAttendanceReports();
-      refreshStationStatus();
-      refreshFingerprintConflicts();
-    }, 4000);
-
-    return () => window.clearInterval(interval);
-  }, [activeView, user, token]);
-
-  useEffect(() => {
-    return () => {
-      stopCamera();
-    };
-  }, []);
-
-  async function handleLogin(event) {
-    event.preventDefault();
-    setLoadingAuth(true);
-    setAuthError("");
-
-    const result = await callApi("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify(authForm)
-    });
-
-    setLoadingAuth(false);
-
-    if (!result.ok) {
-      setAuthError(result.data.message || "Login failed.");
-      return;
-    }
-
-    localStorage.setItem("attendance_token", result.data.token);
-    setToken(result.data.token);
-    setUser(result.data.user);
-    setActiveView("dashboard");
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setLoading(true); setError("");
+    const res = await api("/api/auth/login", { method: "POST", body: JSON.stringify(form) });
+    setLoading(false);
+    if (!res.ok) { setError(res.data.message || "Login failed"); return; }
+    localStorage.setItem("ams_token", res.data.token);
+    onLogin(res.data.token, res.data.user);
   }
 
-  function handleLogout() {
-    stopCamera();
-    localStorage.removeItem("attendance_token");
-    setToken("");
-    setUser(null);
-    setOverview(null);
-    setEmployees([]);
-    setAttendanceRows([]);
-    setSelectedEmployee(null);
-    setEmployeeFingerprints([]);
-    setFingerprintPlan(null);
-  }
-
-  async function refreshOverview() {
-    const result = await callApi("/api/dashboard/overview", {}, token);
-    if (result.ok) {
-      setOverview(result.data);
-      setAuditRows(result.data.recentAuditLogs || []);
-    }
-  }
-
-  async function refreshEmployees() {
-    const result = await callApi("/api/employees", {}, token);
-    if (result.ok) {
-      setEmployees(result.data);
-    }
-  }
-
-  async function refreshFingerprintConflicts(employeeId = null) {
-    const query = new URLSearchParams();
-    if (employeeId) {
-      query.set("employeeId", String(employeeId));
-    }
-
-    const result = await callApi(`/api/biometrics/fingerprint/conflicts${query.toString() ? `?${query}` : ""}`, {}, token);
-    if (!result.ok) {
-      return;
-    }
-
-    if (employeeId) {
-      setSelectedEmployeeConflicts(result.data);
-    } else {
-      setFingerprintConflicts(result.data);
-    }
-  }
-
-  async function refreshAttendanceReports() {
-    const query = new URLSearchParams();
-    Object.entries(reportsFilter).forEach(([key, value]) => {
-      if (value) {
-        query.set(key, value);
-      }
-    });
-
-    const result = await callApi(`/api/attendance${query.toString() ? `?${query}` : ""}`, {}, token);
-    if (result.ok) {
-      setAttendanceRows(result.data);
-    }
-  }
-
-  async function exportAttendanceCsv() {
-    const query = new URLSearchParams();
-    Object.entries(reportsFilter).forEach(([key, value]) => {
-      if (value) {
-        query.set(key, value);
-      }
-    });
-
-    const response = await fetch(`${apiBaseUrl}/api/attendance/export.csv${query.toString() ? `?${query}` : ""}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {}
-    });
-
-    if (!response.ok) {
-      alert("Could not export attendance CSV.");
-      return;
-    }
-
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `attendance-report-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
-  }
-
-  async function refreshStationStatus() {
-    const [fingerprint, face] = await Promise.all([
-      callApi("/api/biometrics/fingerprint/status", {}, token),
-      callApi("/api/biometrics/face/status", {}, token)
-    ]);
-
-    setStationStatus({
-      fingerprint: fingerprint.data,
-      face: face.data
-    });
-  }
-
-  async function loadEmployeeHistory(employeeId) {
-    const result = await callApi(`/api/employees/${employeeId}/attendance`, {}, token);
-    if (result.ok) {
-      setEmployeeHistory(result.data);
-    }
-  }
-
-  async function loadEmployeeFingerprints(employeeId) {
-    const result = await callApi(`/api/employees/${employeeId}/fingerprints`, {}, token);
-    if (result.ok) {
-      setEmployeeFingerprints(result.data);
-    }
-  }
-
-  async function loadFingerprintPlan(employeeId) {
-    const result = await callApi(`/api/employees/${employeeId}/fingerprint-plan`, {}, token);
-    if (result.ok) {
-      setFingerprintPlan(result.data);
-    }
-  }
-
-  async function refreshSelectedEmployeeDetails(employeeId) {
-    await Promise.all([
-      loadEmployeeHistory(employeeId),
-      loadEmployeeFingerprints(employeeId),
-      loadFingerprintPlan(employeeId),
-      refreshFingerprintConflicts(employeeId),
-      refreshEmployees()
-    ]);
-  }
-
-  function startCreateEmployee() {
-    setSelectedEmployee(null);
-    setEmployeeHistory([]);
-    setEmployeeFingerprints([]);
-    setFingerprintPlan(null);
-    setSelectedEmployeeConflicts({ exactDuplicates: [], recentConflicts: [] });
-    setEmployeeForm({
-      id: null,
-      employeeCode: "",
-      name: "",
-      cnic: "",
-      department: "",
-      designation: "",
-      status: "active",
-      profileImage: ""
-    });
-  }
-
-  function startEditEmployee(employee) {
-    setSelectedEmployee(employee);
-    setEmployeeForm({
-      id: employee.id,
-      employeeCode: employee.employee_code || "",
-      name: employee.name || "",
-      cnic: employee.cnic || "",
-      department: employee.department || "",
-      designation: employee.designation || "",
-      status: employee.status || "active",
-      profileImage: employee.profile_image || ""
-    });
-    refreshSelectedEmployeeDetails(employee.id);
-  }
-
-  async function saveEmployee(event) {
-    event.preventDefault();
-
-    const payload = {
-      employeeCode: employeeForm.employeeCode,
-      name: employeeForm.name,
-      cnic: employeeForm.cnic,
-      department: employeeForm.department,
-      designation: employeeForm.designation,
-      status: employeeForm.status,
-      profileImage: employeeForm.profileImage
-    };
-
-    const path = employeeForm.id ? `/api/employees/${employeeForm.id}` : "/api/employees";
-    const method = employeeForm.id ? "PUT" : "POST";
-
-    const result = await callApi(path, {
-      method,
-      body: JSON.stringify(payload)
-    }, token);
-
-    if (!result.ok) {
-      alert(result.data.message || "Could not save employee.");
-      return;
-    }
-
-    await refreshEmployees();
-    if (employeeForm.id) {
-      const refreshed = await callApi(`/api/employees/${employeeForm.id}`, {}, token);
-      if (refreshed.ok) {
-        startEditEmployee(refreshed.data);
-      }
-    } else {
-      startCreateEmployee();
-    }
-  }
-
-  async function markManualAttendance(employeeId) {
-    const result = await callApi("/api/attendance/manual-mark", {
-      method: "POST",
-      body: JSON.stringify({ employeeId })
-    }, token);
-
-    if (!result.ok) {
-      alert(result.data.message || "Could not mark attendance.");
-      return;
-    }
-
-    setStationMessage(`Manual attendance ${result.data.attendance.action} for employee #${employeeId}.`);
-    await refreshOverview();
-    await refreshAttendanceReports();
-  }
-
-  async function launchFingerprintVerification(employeeId = null) {
-    const result = await callApi("/api/biometrics/fingerprint/launch-verify", {
-      method: "POST",
-      body: JSON.stringify(employeeId ? { employeeId } : {})
-    }, token);
-
-    setStationMessage(result.data.message || result.data.status || "Fingerprint verifier launch requested.");
-    await refreshStationStatus();
-    await refreshOverview();
-  }
-
-  async function launchFingerprintEnrollment(employeeId, fingerCode) {
-    const result = await callApi("/api/biometrics/fingerprint/launch-enroll", {
-      method: "POST",
-      body: JSON.stringify({ employeeId, fingerCode })
-    }, token);
-
-    setStationMessage(result.data.message || result.data.status || "Fingerprint enrollment launch requested.");
-    await refreshStationStatus();
-    await refreshOverview();
-  }
-
-  async function setPreferredFinger(employeeId, fingerprintId) {
-    const result = await callApi(`/api/employees/${employeeId}/fingerprints/${fingerprintId}/prefer`, {
-      method: "POST"
-    }, token);
-
-    if (!result.ok) {
-      alert(result.data.message || "Could not set preferred finger.");
-      return;
-    }
-
-    await refreshSelectedEmployeeDetails(employeeId);
-    await refreshOverview();
-    await refreshFingerprintConflicts();
-  }
-
-  async function deleteFingerSlot(employeeId, fingerprintId) {
-    const confirmed = window.confirm("Delete this fingerprint slot? This action cannot be undone.");
-    if (!confirmed) {
-      return;
-    }
-
-    const result = await callApi(`/api/employees/${employeeId}/fingerprints/${fingerprintId}`, {
-      method: "DELETE"
-    }, token);
-
-    if (!result.ok) {
-      alert(result.data.message || "Could not delete fingerprint slot.");
-      return;
-    }
-
-    await refreshSelectedEmployeeDetails(employeeId);
-    await refreshOverview();
-    await refreshFingerprintConflicts();
-  }
-
-  const globalFingerprintConflictCount =
-    (fingerprintConflicts.exactDuplicates?.length || 0) +
-    (fingerprintConflicts.recentConflicts?.length || 0);
-
-  const selectedEmployeeConflictCount =
-    (selectedEmployeeConflicts.exactDuplicates?.length || 0) +
-    (selectedEmployeeConflicts.recentConflicts?.length || 0);
-
-  async function startCamera() {
-    setCameraError("");
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
-        },
-        audio: false
-      });
-
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-      setCameraActive(true);
-    } catch (error) {
-      setCameraError(error.message);
-    }
-  }
-
-  function stopCamera() {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-
-    setCameraActive(false);
-  }
-
-  function captureFrame() {
-    if (!videoRef.current) {
-      return null;
-    }
-
-    const video = videoRef.current;
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
-    const context = canvas.getContext("2d");
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/jpeg", 0.92);
-  }
-
-  async function enrollFaceForSelectedEmployee() {
-    if (!selectedEmployee?.id) {
-      setFaceActionMessage("Select an employee first.");
-      return;
-    }
-
-    const imageBase64 = captureFrame();
-    if (!imageBase64) {
-      setFaceActionMessage("Start the webcam first.");
-      return;
-    }
-
-    const result = await callApi("/api/biometrics/face/enroll", {
-      method: "POST",
-      body: JSON.stringify({
-        employeeId: selectedEmployee.id,
-        imageBase64,
-        profileImage: imageBase64
-      })
-    }, token);
-
-    setFaceActionMessage(result.data.message || result.data.status || "Face enroll request completed.");
-
-    if (result.ok) {
-      await refreshEmployees();
-    }
-  }
-
-  async function verifyFaceAttendance() {
-    const imageBase64 = captureFrame();
-    if (!imageBase64) {
-      setFaceActionMessage("Start the webcam first.");
-      return;
-    }
-
-    const result = await callApi("/api/biometrics/face/verify", {
-      method: "POST",
-      body: JSON.stringify({ imageBase64 })
-    }, token);
-
-    setFaceActionMessage(result.data.message || result.data.status || "Face verification completed.");
-
-    if (result.ok) {
-      await refreshOverview();
-      await refreshAttendanceReports();
-    }
-  }
-
-  if (!user) {
-    return (
-      <main className="auth-shell">
-        <section className="auth-panel">
-          <p className="eyebrow">Attendance Management System</p>
-          <h1>Biometric Workforce Station</h1>
-          <p className="auth-copy">
-            Sign in as an administrator or operator to manage employees, monitor attendance,
-            and run biometric workflows.
+  return (
+    <div className="auth-shell">
+      {/* Left visual */}
+      <div className="auth-visual">
+        <div className="auth-visual-grid" />
+        <div className="auth-visual-glow" />
+        <div className="auth-visual-content">
+          <div className="eyebrow" style={{ marginBottom: 16 }}>Biometric Attendance System</div>
+          <h1 className="auth-headline">
+            Enterprise workforce<br /><em>identity platform</em>
+          </h1>
+          <p className="auth-body-text">
+            Fingerprint and facial recognition attendance tracking with real-time audit trails, multi-station support, and role-based access control.
           </p>
+          <div className="auth-stats">
+            <div>
+              <div className="auth-stat-value">99.9%</div>
+              <div className="auth-stat-label">Uptime SLA</div>
+            </div>
+            <div>
+              <div className="auth-stat-value">&lt; 1s</div>
+              <div className="auth-stat-label">Verification speed</div>
+            </div>
+            <div>
+              <div className="auth-stat-value">AES-256</div>
+              <div className="auth-stat-label">Data encryption</div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-          <form className="auth-form" onSubmit={handleLogin}>
-            <label>
-              <span>Email</span>
+      {/* Right form */}
+      <div className="auth-form-side">
+        <div className="auth-form-card">
+          <div className="auth-logo">
+            <div className="auth-logo-icon"><Icon.Logo /></div>
+            <div>
+              <div className="auth-logo-name">BioTime AMS</div>
+              <div className="auth-logo-sub">v2.0 Enterprise</div>
+            </div>
+          </div>
+
+          <div className="auth-form-title">Welcome back</div>
+          <div className="auth-form-desc">Sign in to access your attendance management console.</div>
+
+          <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label className="form-label">Email address</label>
               <input
+                className="form-input"
                 type="email"
-                value={authForm.email}
-                onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))}
+                placeholder="admin@company.local"
+                value={form.email}
+                onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                autoFocus
               />
-            </label>
-
-            <label>
-              <span>Password</span>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Password</label>
               <input
+                className="form-input"
                 type="password"
-                value={authForm.password}
-                onChange={(event) => setAuthForm((current) => ({ ...current, password: event.target.value }))}
+                placeholder="••••••••"
+                value={form.password}
+                onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
               />
-            </label>
+            </div>
 
-            <button type="submit" disabled={loadingAuth}>
-              {loadingAuth ? "Signing In..." : "Sign In"}
+            {error && <Banner type="danger">{error}</Banner>}
+
+            <button className="btn btn-primary" type="submit" disabled={loading}
+              style={{ width: "100%", justifyContent: "center", marginTop: 8 }}>
+              {loading ? "Authenticating…" : "Sign In"}
             </button>
           </form>
 
-          {authError ? <p className="auth-error">{authError}</p> : null}
-
-          <div className="auth-tip">
-            <strong>Bootstrap admin</strong>
-            <p>{defaultCredentials.email}</p>
-            <p>{defaultCredentials.password}</p>
+          <div className="auth-cred-tip">
+            <div className="auth-cred-tip-title">Bootstrap credentials</div>
+            <div className="auth-cred-row"><span>Email</span><code>{DEFAULT_CREDS.email}</code></div>
+            <div className="auth-cred-row"><span>Password</span><code>{DEFAULT_CREDS.password}</code></div>
           </div>
-        </section>
-      </main>
-    );
-  }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   SIDEBAR
+═══════════════════════════════════════════════════════════════════════════ */
+function Sidebar({ user, activeView, onNav, onLogout, collapsed, onToggleCollapse, conflictCount, mobileOpen, onOverlayClick }) {
+  const navItems = useMemo(() => {
+    const base = [
+      { id: "dashboard", label: "Dashboard",        icon: Icon.Dashboard },
+      { id: "station",   label: "Attendance Station", icon: Icon.Station },
+      { id: "reports",   label: "Reports",           icon: Icon.Reports },
+      { id: "audit",     label: "Audit Log",         icon: Icon.Audit },
+    ];
+    if (user?.role === "admin" || user?.role === "operator") {
+      base.splice(2, 0, { id: "employees", label: "Employees", icon: Icon.Employees });
+    }
+    return base;
+  }, [user]);
 
   return (
-    <main className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <p className="eyebrow">Attendance OS</p>
-          <h2>BioTime Station</h2>
-          <p className="brand__copy">Fingerprint-first attendance with face-readiness and live reporting.</p>
+    <>
+      {mobileOpen && <div className="sidebar-overlay" onClick={onOverlayClick} />}
+      <aside className={`sidebar ${collapsed ? "collapsed" : ""} ${mobileOpen ? "mobile-open" : ""}`}>
+        {/* Header */}
+        <div className="sidebar-header">
+          <div className="brand-mark">
+            <div className="brand-icon"><Icon.Logo /></div>
+            <div className="brand-text">
+              <div className="brand-name">BioTime AMS</div>
+              <div className="brand-sub">Enterprise</div>
+            </div>
+          </div>
+          <button className="collapse-btn" onClick={onToggleCollapse} title={collapsed ? "Expand" : "Collapse"}>
+            <Icon.ChevronLeft />
+          </button>
         </div>
 
-        <nav className="nav">
-          {navigation.map((item) => (
+        {/* Nav */}
+        <nav className="nav-section">
+          <div className="nav-label">Navigation</div>
+          {navItems.map(item => (
             <button
               key={item.id}
-              type="button"
-              className={`nav__item ${activeView === item.id ? "nav__item--active" : ""}`}
-              onClick={() => setActiveView(item.id)}
+              className={`nav-item ${activeView === item.id ? "active" : ""}`}
+              onClick={() => onNav(item.id)}
+              title={collapsed ? item.label : undefined}
             >
-              {item.label}
+              <span className="nav-icon"><item.icon /></span>
+              <span className="nav-text">{item.label}</span>
+              {item.id === "station" && conflictCount > 0 && (
+                <span className="nav-badge">{conflictCount}</span>
+              )}
             </button>
           ))}
         </nav>
 
-        <div className="user-card">
-          <p className="user-card__name">{user.name}</p>
-          <p className="user-card__meta">{user.email}</p>
-          <span className="user-card__role">{user.role}</span>
-          <button type="button" className="ghost-button" onClick={handleLogout}>
-            Sign Out
-          </button>
+        {/* User */}
+        <div className="sidebar-footer">
+          <div className="user-tile">
+            <div className="avatar">{initials(user?.name || "")}</div>
+            <div className="user-info">
+              <div className="user-name">{user?.name}</div>
+              <div className="user-role">{user?.role}</div>
+            </div>
+            <button className="signout-btn" onClick={onLogout} title="Sign out">
+              <Icon.LogOut />
+            </button>
+          </div>
         </div>
       </aside>
-
-      <section className="workspace">
-        {activeView === "dashboard" && (
-          <section className="view">
-            <header className="view__header">
-              <div>
-                <p className="eyebrow">Live Operations</p>
-                <h1>Dashboard</h1>
-              </div>
-              <button type="button" onClick={refreshOverview}>Refresh</button>
-            </header>
-
-            <div className="metrics-grid">
-              <MetricCard label="Total Employees" value={overview?.employeeStats?.totalEmployees ?? 0} />
-              <MetricCard label="Active Employees" value={overview?.employeeStats?.activeEmployees ?? 0} tone="success" />
-              <MetricCard label="Fingerprint Enrolled" value={overview?.employeeStats?.fingerprintEnrolled ?? 0} />
-              <MetricCard label="Stored Finger Slots" value={overview?.employeeStats?.fingerprintTemplates ?? 0} tone="success" helper="Multiple fingers can be enrolled per employee." />
-              <MetricCard label="Face Enrolled" value={overview?.employeeStats?.faceEnrolled ?? 0} tone="warning" helper="Face service depends on Python CV libraries." />
-              <MetricCard label="Today Check-ins" value={overview?.todayStats?.checkIns ?? 0} />
-              <MetricCard label="Open Sessions" value={overview?.todayStats?.openSessions ?? 0} tone="danger" />
-            </div>
-
-            <section className="panel">
-              <div className="panel__header">
-                <h2>Recent Attendance</h2>
-                <p>Latest biometric and manual entries.</p>
-              </div>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Employee</th>
-                      <th>Date</th>
-                      <th>Check In</th>
-                      <th>Check Out</th>
-                      <th>Methods</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(overview?.recentAttendance || []).map((row) => (
-                      <tr key={row.id}>
-                        <td>
-                          <strong>{row.name}</strong>
-                          <span>{row.employee_code || "No code"}</span>
-                        </td>
-                        <td>{row.date}</td>
-                        <td>{row.check_in ? new Date(row.check_in).toLocaleString() : "-"}</td>
-                        <td>{row.check_out ? new Date(row.check_out).toLocaleString() : "-"}</td>
-                        <td>{row.check_in_method || "-"} / {row.check_out_method || "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            <section className="panel">
-              <div className="panel__header">
-                <h2>Audit Trail</h2>
-                <p>Recent security and operational events.</p>
-              </div>
-              {globalFingerprintConflictCount > 0 ? (
-                <p className="banner banner--danger">
-                  {globalFingerprintConflictCount} fingerprint conflict signal{globalFingerprintConflictCount > 1 ? "s are" : " is"} active. Review the remediation panel before relying on global attendance verification.
-                </p>
-              ) : null}
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Event</th>
-                      <th>Target</th>
-                      <th>Actor</th>
-                      <th>When</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {auditRows.map((row) => (
-                      <tr key={row.id}>
-                        <td>
-                          <strong>{row.summary}</strong>
-                          <span>{row.event_type}</span>
-                        </td>
-                        <td>{row.target_type} #{row.target_id || "-"}</td>
-                        <td>{row.actor_name || "System / Device"}</td>
-                        <td>{new Date(row.created_at).toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </section>
-        )}
-
-        {activeView === "station" && (
-          <section className="view">
-            <header className="view__header">
-              <div>
-                <p className="eyebrow">Operator Console</p>
-                <h1>Attendance Station</h1>
-              </div>
-              <button type="button" onClick={refreshStationStatus}>Refresh Services</button>
-            </header>
-
-            <div className="service-grid">
-              <ServicePill label="Fingerprint Verifier" status={stationStatus.fingerprint.status || "unknown"} message={stationStatus.fingerprint.message || "No message"} />
-              <ServicePill label="Biometric Agent" status={stationStatus.fingerprint.mode === "local-agent" ? "ok" : "warning"} message={stationStatus.fingerprint.mode === "local-agent" ? "Browser-triggered fingerprint workflows are available through the local agent." : "Start the local biometric agent to trigger fingerprint workflows from the browser."} />
-              <ServicePill label="Face Service" status={stationStatus.face.status || "unknown"} message={stationStatus.face.message || "No message"} />
-            </div>
-
-            <div className="station-grid">
-              <section className="panel panel--accent">
-                <div className="panel__header">
-                  <h2>Fingerprint Workflow</h2>
-                  <p>Fingerprint scanning runs through the Windows desktop verifier because the HID reader uses native SDK controls.</p>
-                </div>
-                <div className="instruction-list">
-                  <p>1. Keep backend running on port `4000`.</p>
-                  <p>2. Start the local biometric agent, then use `Launch Fingerprint Verification` below.</p>
-                  <p>3. Touch the enrolled finger and let the desktop verifier mark attendance automatically.</p>
-                  <p>4. Use the employee panel or lifecycle cards to launch enrollment for missing backup fingers.</p>
-                  <p>5. Refresh this station to confirm the latest attendance entry and helper status.</p>
-                </div>
-                {globalFingerprintConflictCount > 0 ? (
-                  <p className="banner banner--danger">
-                    Global fingerprint verification is in guarded mode because conflict signals exist. Resolve duplicate ownership issues before using the station broadly.
-                  </p>
-                ) : null}
-                {latestStationEvent ? (
-                  <div className={`station-event station-event--${latestStationEvent.tone}`}>
-                    <p className="station-event__label">{latestStationEvent.label}</p>
-                    <strong className="station-event__summary">{latestStationEvent.summary}</strong>
-                    <span className="station-event__time">{new Date(latestStationEvent.when).toLocaleString()}</span>
-                  </div>
-                ) : null}
-                {stationMessage ? <p className="banner banner--info">{stationMessage}</p> : null}
-                <p className="banner banner--info">
-                  The browser UI triggers native fingerprint workflows through the local Windows biometric agent, which launches the HID helper apps professionally on this workstation.
-                </p>
-                <div className="actions">
-                  <button type="button" onClick={() => launchFingerprintVerification()}>Launch Fingerprint Verification</button>
-                  <button type="button" onClick={refreshOverview}>Refresh Attendance Feed</button>
-                  <button type="button" onClick={refreshStationStatus}>Refresh Fingerprint Status</button>
-                </div>
-              </section>
-
-              <section className="panel">
-                <div className="panel__header">
-                  <h2>Face Recognition Workflow</h2>
-                  <p>Designed for the Logitech HD 1080p webcam through browser capture.</p>
-                </div>
-                <div className="camera-card">
-                  <video ref={videoRef} autoPlay muted playsInline className="camera-preview" />
-                  {cameraError ? <p className="banner banner--danger">{cameraError}</p> : null}
-                  {faceActionMessage ? <p className="banner banner--info">{faceActionMessage}</p> : null}
-                  <div className="actions">
-                    {!cameraActive ? (
-                      <button type="button" onClick={startCamera}>Start Logitech Camera</button>
-                    ) : (
-                      <button type="button" className="ghost-button" onClick={stopCamera}>Stop Camera</button>
-                    )}
-                    <button type="button" onClick={verifyFaceAttendance}>Verify Face Attendance</button>
-                  </div>
-                </div>
-              </section>
-            </div>
-          </section>
-        )}
-
-        {activeView === "employees" && (
-          <section className="view">
-            <header className="view__header">
-              <div>
-                <p className="eyebrow">Workforce Registry</p>
-                <h1>Employee Management</h1>
-              </div>
-              <button type="button" onClick={startCreateEmployee}>New Employee</button>
-            </header>
-
-            <div className="employees-layout">
-              <section className="panel">
-                <div className="panel__header">
-                  <h2>Employees</h2>
-                  <p>Biometric status, departments, and quick operator actions.</p>
-                </div>
-                <div className="employee-list">
-                  {employees.map((employee) => (
-                    <button
-                      key={employee.id}
-                      type="button"
-                      className={`employee-card ${selectedEmployee?.id === employee.id ? "employee-card--active" : ""}`}
-                      onClick={() => startEditEmployee(employee)}
-                    >
-                      <div>
-                        <strong>{employee.name}</strong>
-                        <p>{employee.employee_code || "No code"} | {employee.cnic}</p>
-                      </div>
-                      <div className="chip-row">
-                        <span className={`chip ${employee.has_fingerprint ? "chip--success" : "chip--muted"}`}>
-                          {employee.has_fingerprint ? `${employee.fingerprint_count || 1} Finger${(employee.fingerprint_count || 1) > 1 ? "s" : ""}` : "No Fingerprint"}
-                        </span>
-                        <span className={`chip ${employee.has_face ? "chip--warning" : "chip--muted"}`}>
-                          {employee.has_face ? "Face" : "No Face"}
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              <section className="panel">
-                <div className="panel__header">
-                  <h2>{employeeForm.id ? "Edit Employee" : "Create Employee"}</h2>
-                  <p>Role-friendly registration with biometric status visibility.</p>
-                </div>
-                <form className="employee-form" onSubmit={saveEmployee}>
-                  <label>
-                    <span>Employee Code</span>
-                    <input value={employeeForm.employeeCode} onChange={(event) => setEmployeeForm((current) => ({ ...current, employeeCode: event.target.value }))} />
-                  </label>
-                  <label>
-                    <span>Name</span>
-                    <input value={employeeForm.name} onChange={(event) => setEmployeeForm((current) => ({ ...current, name: event.target.value }))} required />
-                  </label>
-                  <label>
-                    <span>CNIC</span>
-                    <input value={employeeForm.cnic} onChange={(event) => setEmployeeForm((current) => ({ ...current, cnic: event.target.value }))} required />
-                  </label>
-                  <label>
-                    <span>Department</span>
-                    <input value={employeeForm.department} onChange={(event) => setEmployeeForm((current) => ({ ...current, department: event.target.value }))} />
-                  </label>
-                  <label>
-                    <span>Designation</span>
-                    <input value={employeeForm.designation} onChange={(event) => setEmployeeForm((current) => ({ ...current, designation: event.target.value }))} />
-                  </label>
-                  <label>
-                    <span>Status</span>
-                    <select value={employeeForm.status} onChange={(event) => setEmployeeForm((current) => ({ ...current, status: event.target.value }))}>
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                    </select>
-                  </label>
-                  <label className="field-span">
-                    <span>Profile Image (base64 or URL)</span>
-                    <textarea value={employeeForm.profileImage} onChange={(event) => setEmployeeForm((current) => ({ ...current, profileImage: event.target.value }))} rows={3} />
-                  </label>
-                  <div className="actions">
-                    <button type="submit">{employeeForm.id ? "Save Changes" : "Create Employee"}</button>
-                    <button type="button" className="ghost-button" onClick={startCreateEmployee}>Reset Form</button>
-                  </div>
-                </form>
-
-                <div className="biometric-tools">
-                  <h3>Biometric Productivity Tools</h3>
-                  <p>Fingerprint enrollment and verification run through the local Windows helper apps because HID access is native-device based.</p>
-                  <div className="instruction-list">
-                    <p>Preferred browser-triggered flow: start the local biometric agent, then use the launch buttons below.</p>
-                    <p>Direct helper fallback: run `attendance-system\fingerprint-enroll-ui\run.ps1` or `attendance-system\fingerprint-identify-ui\run.ps1`.</p>
-                    <p>Selected employee ID: {selectedEmployee?.id || employeeForm.id || "Choose an employee"}</p>
-                    <p>
-                      Enrolled finger slots: {employeeFingerprints.length > 0
-                        ? employeeFingerprints.map((item) => formatFingerLabel(item.finger_code)).join(", ")
-                        : "None loaded yet"}
-                    </p>
-                  </div>
-                  <div className="actions">
-                    <button
-                      type="button"
-                      onClick={() => (selectedEmployee?.id || employeeForm.id) && launchFingerprintEnrollment(selectedEmployee?.id || employeeForm.id, fingerprintPlan?.missingRecommended?.[0]?.fingerCode || "right_index")}
-                    >
-                      Launch Fingerprint Enrollment
-                    </button>
-                    <button type="button" onClick={() => selectedEmployee?.id && launchFingerprintVerification(selectedEmployee.id)}>Verify Selected Employee Fingerprint</button>
-                    <button type="button" onClick={enrollFaceForSelectedEmployee}>Enroll Face For Selected Employee</button>
-                    <button type="button" onClick={() => selectedEmployee?.id && markManualAttendance(selectedEmployee.id)}>Manual Attendance For Selected Employee</button>
-                  </div>
-                </div>
-
-                {selectedEmployee ? (
-                  <div className="history-card">
-                    <h3>Enrolled Fingerprints</h3>
-                    <ul className="history-list">
-                      {employeeFingerprints.length > 0 ? employeeFingerprints.map((fingerprint) => (
-                        <li key={fingerprint.id}>
-                          <strong>{formatFingerLabel(fingerprint.finger_code)}{fingerprint.is_preferred ? " (Preferred)" : ""}</strong>
-                          <span>{fingerprint.template_format} | {fingerprint.source || "Unknown source"}</span>
-                          <div className="actions">
-                            {!fingerprint.is_preferred ? (
-                              <button type="button" className="ghost-button" onClick={() => setPreferredFinger(selectedEmployee.id, fingerprint.id)}>Set Preferred</button>
-                            ) : null}
-                            <button type="button" className="ghost-button" onClick={() => launchFingerprintEnrollment(selectedEmployee.id, fingerprint.finger_code)}>Replace Slot</button>
-                            <button type="button" className="ghost-button" onClick={() => deleteFingerSlot(selectedEmployee.id, fingerprint.id)}>Delete Slot</button>
-                          </div>
-                        </li>
-                      )) : (
-                        <li>
-                          <strong>No enrolled fingers yet</strong>
-                          <span>Use the enrollment helper app to add one or more fingers.</span>
-                        </li>
-                      )}
-                    </ul>
-                  </div>
-                ) : null}
-
-                {selectedEmployee ? (
-                  <div className="history-card">
-                    <h3>Fingerprint Conflict Remediation</h3>
-                    {selectedEmployeeConflictCount > 0 ? (
-                      <>
-                        <p className="banner banner--danger">
-                          This employee has fingerprint conflict signals. Remove or replace the affected slot before using global attendance verification.
-                        </p>
-                        <ul className="history-list">
-                          {selectedEmployeeConflicts.exactDuplicates?.map((conflict) => (
-                            <li key={`exact-${conflict.templateHash}`}>
-                              <strong>Exact duplicate template detected</strong>
-                              <span>{conflict.summary}</span>
-                              <span>{conflict.remediation}</span>
-                            </li>
-                          ))}
-                          {selectedEmployeeConflicts.recentConflicts?.map((conflict) => (
-                            <li key={`event-${conflict.id}`}>
-                              <strong>{conflict.summary}</strong>
-                              <span>{new Date(conflict.createdAt).toLocaleString()}</span>
-                              <span>{conflict.metadata?.stage ? `Stage: ${conflict.metadata.stage}` : "Conflict event logged."}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </>
-                    ) : (
-                      <p className="banner banner--info">
-                        No fingerprint conflict signals are currently recorded for this employee.
-                      </p>
-                    )}
-                  </div>
-                ) : null}
-
-                {selectedEmployee && fingerprintPlan ? (
-                  <div className="history-card">
-                    <h3>Recommended Backup Fingers</h3>
-                    <ul className="history-list">
-                      {fingerprintPlan.recommended.map((item) => (
-                        <li key={item.fingerCode}>
-                          <strong>{item.label}{item.isPreferred ? " (Preferred)" : ""}</strong>
-                          <span>{item.enrolled ? "Already enrolled" : "Recommended backup slot"}</span>
-                          {!item.enrolled ? (
-                            <div className="actions">
-                              <button type="button" onClick={() => launchFingerprintEnrollment(selectedEmployee.id, item.fingerCode)}>Enroll {item.label}</button>
-                            </div>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-
-                {selectedEmployee ? (
-                  <div className="history-card">
-                    <h3>Recent Attendance For {selectedEmployee.name}</h3>
-                    <ul className="history-list">
-                      {employeeHistory.map((row) => (
-                        <li key={row.id}>
-                          <strong>{row.date}</strong>
-                          <span>{row.check_in ? new Date(row.check_in).toLocaleString() : "-"} / {row.check_out ? new Date(row.check_out).toLocaleString() : "-"}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </section>
-            </div>
-          </section>
-        )}
-
-        {activeView === "reports" && (
-          <section className="view">
-            <header className="view__header">
-              <div>
-                <p className="eyebrow">Insights</p>
-                <h1>Attendance Reports</h1>
-              </div>
-              <div className="actions">
-                <button type="button" className="ghost-button" onClick={exportAttendanceCsv}>Export CSV</button>
-                <button type="button" onClick={refreshAttendanceReports}>Refresh Reports</button>
-              </div>
-            </header>
-
-            <section className="panel">
-              <div className="report-filters">
-                <label>
-                  <span>Date From</span>
-                  <input type="date" value={reportsFilter.dateFrom} onChange={(event) => setReportsFilter((current) => ({ ...current, dateFrom: event.target.value }))} />
-                </label>
-                <label>
-                  <span>Date To</span>
-                  <input type="date" value={reportsFilter.dateTo} onChange={(event) => setReportsFilter((current) => ({ ...current, dateTo: event.target.value }))} />
-                </label>
-                <label>
-                  <span>Method</span>
-                  <select value={reportsFilter.method} onChange={(event) => setReportsFilter((current) => ({ ...current, method: event.target.value }))}>
-                    <option value="">All</option>
-                    <option value="fingerprint">Fingerprint</option>
-                    <option value="face">Face</option>
-                    <option value="manual">Manual</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Status</span>
-                  <select value={reportsFilter.status} onChange={(event) => setReportsFilter((current) => ({ ...current, status: event.target.value }))}>
-                    <option value="">All</option>
-                    <option value="open">Open Sessions</option>
-                    <option value="closed">Closed Sessions</option>
-                  </select>
-                </label>
-                <button type="button" onClick={refreshAttendanceReports}>Apply Filters</button>
-              </div>
-
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Employee</th>
-                      <th>Date</th>
-                      <th>Check In</th>
-                      <th>Check Out</th>
-                      <th>Devices</th>
-                      <th>Methods</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {attendanceRows.map((row) => (
-                      <tr key={row.id}>
-                        <td>
-                          <strong>{row.name}</strong>
-                          <span>{row.department || "No department"}</span>
-                        </td>
-                        <td>{row.date}</td>
-                        <td>{row.check_in ? new Date(row.check_in).toLocaleString() : "-"}</td>
-                        <td>{row.check_out ? new Date(row.check_out).toLocaleString() : "-"}</td>
-                        <td>{row.check_in_device || "-"} / {row.check_out_device || "-"}</td>
-                        <td>{row.check_in_method || "-"} / {row.check_out_method || "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </section>
-        )}
-      </section>
-    </main>
+    </>
   );
 }
 
-export default App;
+/* ════════════════════════════════════════════════════════════════════════════
+   TOPBAR
+═══════════════════════════════════════════════════════════════════════════ */
+function Topbar({ view, fpStatus, onMobileMenu, onRefresh }) {
+  const titles = {
+    dashboard: { eye: "Live Operations", title: "Dashboard" },
+    station:   { eye: "Operator Console", title: "Attendance Station" },
+    employees: { eye: "Workforce Registry", title: "Employees" },
+    reports:   { eye: "Insights", title: "Reports" },
+    audit:     { eye: "Security", title: "Audit Trail" },
+  };
+  const { eye, title } = titles[view] || { eye: "", title: "" };
+  const status = fpStatus?.status;
+  const pillTone = status === "ok" ? "" : status === "warning" ? "warn" : "err";
+
+  return (
+    <div className="topbar">
+      <div className="topbar-left">
+        <button className="mobile-menu-btn" onClick={onMobileMenu}><Icon.Menu /></button>
+        <div>
+          <div className="page-eyebrow">{eye}</div>
+          <div className="page-title">{title}</div>
+        </div>
+      </div>
+      <div className="topbar-right">
+        <div className="topbar-pill">
+          <span className={`pill-dot ${pillTone}`} />
+          <span>Fingerprint</span>
+        </div>
+        <button className="btn btn-ghost btn-sm" onClick={onRefresh} title="Refresh">
+          <Icon.Refresh />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   DASHBOARD VIEW
+═══════════════════════════════════════════════════════════════════════════ */
+function DashboardView({ overview, auditRows, conflictCount, onRefresh }) {
+  const stats = overview?.employeeStats || {};
+  const today = overview?.todayStats || {};
+
+  return (
+    <div className="view">
+      <div className="view-header">
+        <div className="view-header-left">
+          <div className="eyebrow">Live Operations</div>
+          <h1 className="view-title">Dashboard</h1>
+        </div>
+        <div className="view-header-actions">
+          <button className="btn btn-secondary" onClick={onRefresh}><Icon.Refresh />Refresh</button>
+        </div>
+      </div>
+
+      <div className="metrics-grid">
+        <MetricCard label="Total Employees"     value={stats.totalEmployees ?? 0}     icon={Icon.Users} />
+        <MetricCard label="Active Employees"    value={stats.activeEmployees ?? 0}    icon={Icon.CheckCircle} tone="success" />
+        <MetricCard label="Finger Slots"        value={stats.fingerprintTemplates ?? 0} icon={Icon.Fingerprint} tone="success" helper="Multiple fingers per employee" />
+        <MetricCard label="Face Enrolled"       value={stats.faceEnrolled ?? 0}       icon={Icon.Face} tone="warning" />
+        <MetricCard label="Today Check-Ins"     value={today.checkIns ?? 0}           icon={Icon.TrendUp} />
+        <MetricCard label="Open Sessions"       value={today.openSessions ?? 0}       icon={Icon.Clock} tone={today.openSessions > 0 ? "danger" : ""} />
+      </div>
+
+      {conflictCount > 0 && (
+        <Banner type="danger">
+          <strong>{conflictCount} fingerprint conflict{conflictCount > 1 ? "s" : ""}</strong> detected. Resolve duplicate ownership issues before using global verification.
+        </Banner>
+      )}
+
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <div className="panel-title">Recent Attendance</div>
+            <div className="panel-desc">Latest biometric and manual entries across all stations.</div>
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Date</th>
+                <th>Check In</th>
+                <th>Check Out</th>
+                <th>Methods</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(overview?.recentAttendance || []).length === 0 ? (
+                <tr><td colSpan={6}><div className="empty-state"><Icon.Activity /><p>No attendance records yet</p></div></td></tr>
+              ) : (overview?.recentAttendance || []).map(row => (
+                <tr key={row.id}>
+                  <td>
+                    <strong>{row.name}</strong>
+                    <span>{row.employee_code || "No code"}</span>
+                  </td>
+                  <td>{row.date}</td>
+                  <td style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{fmtTime(row.check_in)}</td>
+                  <td style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{fmtTime(row.check_out)}</td>
+                  <td>
+                    <span className="badge badge-info">{row.check_in_method || "—"}</span>
+                    {row.check_out_method && <span className="badge badge-muted" style={{ marginLeft: 4 }}>{row.check_out_method}</span>}
+                  </td>
+                  <td>
+                    {row.check_out
+                      ? <span className="badge badge-success"><span className="badge-dot" />Closed</span>
+                      : <span className="badge badge-warning"><span className="badge-dot" />Open</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <div className="panel-title">Audit Trail</div>
+            <div className="panel-desc">Recent security and operational events.</div>
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Event</th><th>Type</th><th>Actor</th><th>When</th></tr>
+            </thead>
+            <tbody>
+              {(auditRows || []).slice(0, 12).map(row => (
+                <tr key={row.id}>
+                  <td><strong>{row.summary}</strong></td>
+                  <td><span className="badge badge-muted">{row.event_type}</span></td>
+                  <td>{row.actor_name || "System"}</td>
+                  <td style={{ fontFamily: "var(--font-mono)", fontSize: 11, whiteSpace: "nowrap" }}>{fmtDT(row.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   STATION VIEW
+═══════════════════════════════════════════════════════════════════════════ */
+function StationView({ token, stationStatus, latestEvent, conflictCount, stationMsg, onRefresh, onLaunchVerify, onRefreshStatus }) {
+  const fp = stationStatus.fingerprint || {};
+  const face = stationStatus.face || {};
+  const agentOk = fp.mode === "local-agent";
+
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const [camActive, setCamActive] = useState(false);
+  const [camErr, setCamErr] = useState("");
+  const [faceMsg, setFaceMsg] = useState("");
+  const [faceLoading, setFaceLoading] = useState(false);
+
+  async function startCam() {
+    setCamErr("");
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1920 } }, audio: false });
+      streamRef.current = s;
+      if (videoRef.current) videoRef.current.srcObject = s;
+      setCamActive(true);
+    } catch (e) { setCamErr(e.message); }
+  }
+
+  function stopCam() {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCamActive(false);
+  }
+
+  function captureFrame() {
+    if (!videoRef.current) return null;
+    const v = videoRef.current;
+    const c = document.createElement("canvas");
+    c.width = v.videoWidth || 1280; c.height = v.videoHeight || 720;
+    c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", 0.92);
+  }
+
+  async function verifyFace() {
+    const img = captureFrame();
+    if (!img) { setFaceMsg("Start the camera first."); return; }
+    setFaceLoading(true); setFaceMsg("");
+    const res = await api("/api/biometrics/face/verify", { method: "POST", body: JSON.stringify({ imageBase64: img }) }, token);
+    setFaceLoading(false);
+    setFaceMsg(res.data.message || res.data.status || "Face verification complete.");
+    if (res.ok) onRefresh();
+  }
+
+  useEffect(() => () => stopCam(), []);
+
+  const eventTone = latestEvent?.event_type === "attendance.check_in" ? "success"
+    : latestEvent?.event_type === "attendance.check_out" ? "warning"
+    : latestEvent?.event_type === "attendance.already_closed" ? "danger" : "info";
+
+  return (
+    <div className="view">
+      <div className="view-header">
+        <div className="view-header-left">
+          <div className="eyebrow">Operator Console</div>
+          <h1 className="view-title">Attendance Station</h1>
+        </div>
+        <div className="view-header-actions">
+          <button className="btn btn-secondary" onClick={onRefreshStatus}><Icon.Refresh />Refresh Services</button>
+        </div>
+      </div>
+
+      {/* Service Status */}
+      <div className="service-pills">
+        <ServicePill
+          label="Biometric Agent"
+          status={agentOk ? "ok" : "warning"}
+          message={agentOk ? "Local agent ready" : "Start biometric agent"}
+        />
+        <ServicePill
+          label="Fingerprint"
+          status={fp.status || "loading"}
+          message={fp.message}
+        />
+        <ServicePill
+          label="Face Service"
+          status={face.status || "loading"}
+          message={face.message}
+        />
+      </div>
+
+      {conflictCount > 0 && (
+        <Banner type="danger">
+          <strong>{conflictCount} fingerprint conflict{conflictCount > 1 ? "s" : ""} active.</strong> Global verification is in guarded mode. Resolve duplicate ownership in the Employees view.
+        </Banner>
+      )}
+
+      {stationMsg && <Banner type="info">{stationMsg}</Banner>}
+
+      {/* Latest Event */}
+      {latestEvent && (
+        <div className={`event-card ${eventTone}`}>
+          <div className="event-icon">
+            {eventTone === "success" ? <Icon.CheckCircle /> : eventTone === "warning" ? <Icon.Clock /> : <Icon.AlertTriangle />}
+          </div>
+          <div>
+            <div className="event-label">
+              {latestEvent.event_type === "attendance.check_in" ? "Check-In Recorded"
+                : latestEvent.event_type === "attendance.check_out" ? "Check-Out Recorded"
+                : latestEvent.event_type === "attendance.already_closed" ? "Session Already Closed"
+                : "Attendance Event"}
+            </div>
+            <div className="event-summary">{latestEvent.summary}</div>
+            <div className="event-time">{fmtDT(latestEvent.created_at)}</div>
+          </div>
+        </div>
+      )}
+
+      <div className="station-grid">
+        {/* Fingerprint Panel */}
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <div className="panel-title">Fingerprint Workflow</div>
+              <div className="panel-desc">HID DigitalPersona 4500 via desktop agent</div>
+            </div>
+            <span className="badge badge-info"><Icon.Fingerprint style={{ width: 10, height: 10 }} />HID SDK</span>
+          </div>
+          <div className="panel-body">
+            <div className="steps-list" style={{ marginBottom: 20 }}>
+              <div className="step-item">Keep backend running on port <code style={{ fontFamily: "var(--font-mono)", fontSize: 11, background: "var(--bg-overlay)", padding: "1px 5px", borderRadius: 4 }}>4000</code></div>
+              <div className="step-item">Start the local biometric agent (<code style={{ fontFamily: "var(--font-mono)", fontSize: 11, background: "var(--bg-overlay)", padding: "1px 5px", borderRadius: 4 }}>port 8091</code>)</div>
+              <div className="step-item">Launch fingerprint verification below and place your finger on the reader</div>
+              <div className="step-item">Attendance is automatically recorded and reflected on the dashboard</div>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button className="btn btn-primary" onClick={onLaunchVerify} disabled={conflictCount > 0}>
+                <Icon.Fingerprint />Launch Verification
+              </button>
+              <button className="btn btn-secondary" onClick={onRefresh}><Icon.Refresh />Refresh Feed</button>
+            </div>
+          </div>
+        </div>
+
+        {/* Face Panel */}
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <div className="panel-title">Face Recognition</div>
+              <div className="panel-desc">Webcam capture via browser API</div>
+            </div>
+            <span className="badge badge-warning"><Icon.Face style={{ width: 10, height: 10 }} />Beta</span>
+          </div>
+          <div className="panel-body">
+            <div className={`camera-wrap ${camActive ? "camera-active" : ""}`}>
+              <video ref={videoRef} autoPlay muted playsInline />
+              {!camActive && (
+                <div className="camera-placeholder">
+                  <Icon.Camera />
+                  <p>Camera not active</p>
+                </div>
+              )}
+              <div className="scan-line" />
+              <div className="scan-corner tl" />
+              <div className="scan-corner tr" />
+              <div className="scan-corner bl" />
+              <div className="scan-corner br" />
+            </div>
+
+            {camErr && <Banner type="danger">{camErr}</Banner>}
+            {faceMsg && <Banner type={faceMsg.includes("match") || faceMsg.includes("enrolled") ? "success" : "info"}>{faceMsg}</Banner>}
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {!camActive
+                ? <button className="btn btn-secondary" onClick={startCam}><Icon.Camera />Start Camera</button>
+                : <button className="btn btn-ghost" onClick={stopCam}><Icon.CameraOff />Stop</button>}
+              <button className="btn btn-primary" onClick={verifyFace} disabled={faceLoading || !camActive}>
+                <Icon.Face />{faceLoading ? "Verifying…" : "Verify Face"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   EMPLOYEES VIEW
+═══════════════════════════════════════════════════════════════════════════ */
+function EmployeesView({ token, employees, onRefreshEmployees }) {
+  const [selected, setSelected] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [fingerprints, setFingerprints] = useState([]);
+  const [fpPlan, setFpPlan] = useState(null);
+  const [conflicts, setConflicts] = useState({ exactDuplicates: [], recentConflicts: [] });
+  const [form, setForm] = useState({ id: null, employeeCode: "", name: "", cnic: "", department: "", designation: "", status: "active", profileImage: "" });
+  const [msg, setMsg] = useState("");
+  const [msgType, setMsgType] = useState("info");
+  const [saving, setSaving] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const [camActive, setCamActive] = useState(false);
+  const [camErr, setCamErr] = useState("");
+  const [faceMsg, setFaceMsg] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase();
+    return employees.filter(e =>
+      e.name?.toLowerCase().includes(q) ||
+      e.cnic?.includes(q) ||
+      e.employee_code?.toLowerCase().includes(q)
+    );
+  }, [employees, query]);
+
+  async function loadEmployee(emp) {
+    setSelected(emp);
+    setForm({
+      id: emp.id,
+      employeeCode: emp.employee_code || "",
+      name: emp.name || "",
+      cnic: emp.cnic || "",
+      department: emp.department || "",
+      designation: emp.designation || "",
+      status: emp.status || "active",
+      profileImage: emp.profile_image || "",
+    });
+    const [hist, fps, plan, conf] = await Promise.all([
+      api(`/api/employees/${emp.id}/attendance`, {}, token),
+      api(`/api/employees/${emp.id}/fingerprints`, {}, token),
+      api(`/api/employees/${emp.id}/fingerprint-plan`, {}, token),
+      api(`/api/biometrics/fingerprint/conflicts?employeeId=${emp.id}`, {}, token),
+    ]);
+    if (hist.ok) setHistory(hist.data);
+    if (fps.ok) setFingerprints(fps.data);
+    if (plan.ok) setFpPlan(plan.data);
+    if (conf.ok) setConflicts(conf.data);
+  }
+
+  function resetForm() {
+    setSelected(null);
+    setHistory([]); setFingerprints([]); setFpPlan(null);
+    setConflicts({ exactDuplicates: [], recentConflicts: [] });
+    setMsg(""); setCamErr(""); setFaceMsg("");
+    setForm({ id: null, employeeCode: "", name: "", cnic: "", department: "", designation: "", status: "active", profileImage: "" });
+  }
+
+  async function saveEmployee(e) {
+    e.preventDefault(); setSaving(true); setMsg("");
+    const path = form.id ? `/api/employees/${form.id}` : "/api/employees";
+    const method = form.id ? "PUT" : "POST";
+    const res = await api(path, { method, body: JSON.stringify({
+      employeeCode: form.employeeCode, name: form.name, cnic: form.cnic,
+      department: form.department, designation: form.designation,
+      status: form.status, profileImage: form.profileImage,
+    })}, token);
+    setSaving(false);
+    if (!res.ok) { setMsg(res.data.message || "Save failed"); setMsgType("danger"); return; }
+    setMsg(form.id ? "Employee updated." : "Employee created."); setMsgType("success");
+    onRefreshEmployees();
+    if (!form.id) resetForm();
+  }
+
+  async function launchEnroll(empId, fingerCode) {
+    const res = await api("/api/biometrics/fingerprint/launch-enroll", { method: "POST", body: JSON.stringify({ employeeId: empId, fingerCode }) }, token);
+    setMsg(res.data.message || "Enrollment launched."); setMsgType("info");
+  }
+
+  async function launchVerify(empId) {
+    const res = await api("/api/biometrics/fingerprint/launch-verify", { method: "POST", body: JSON.stringify({ employeeId: empId }) }, token);
+    setMsg(res.data.message || "Verification launched."); setMsgType("info");
+  }
+
+  async function markManual(empId) {
+    const res = await api("/api/attendance/manual-mark", { method: "POST", body: JSON.stringify({ employeeId: empId }) }, token);
+    if (!res.ok) { setMsg(res.data.message || "Error"); setMsgType("danger"); return; }
+    setMsg(`Manual ${res.data.attendance?.action} recorded.`); setMsgType("success");
+  }
+
+  async function setPreferred(empId, fpId) {
+    await api(`/api/employees/${empId}/fingerprints/${fpId}/prefer`, { method: "POST" }, token);
+    loadEmployee(selected);
+  }
+
+  async function deleteSlot(empId, fpId) {
+    if (!confirm("Delete this fingerprint slot? This cannot be undone.")) return;
+    await api(`/api/employees/${empId}/fingerprints/${fpId}`, { method: "DELETE" }, token);
+    loadEmployee(selected);
+  }
+
+  async function startCam() {
+    setCamErr("");
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1920 } }, audio: false });
+      streamRef.current = s;
+      if (videoRef.current) videoRef.current.srcObject = s;
+      setCamActive(true);
+    } catch (e) { setCamErr(e.message); }
+  }
+  function stopCam() {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCamActive(false);
+  }
+
+  async function enrollFace() {
+    if (!selected?.id) { setFaceMsg("Select an employee first."); return; }
+    if (!videoRef.current) { setFaceMsg("Start the camera first."); return; }
+    const v = videoRef.current;
+    const c = document.createElement("canvas");
+    c.width = v.videoWidth || 1280; c.height = v.videoHeight || 720;
+    c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+    const img = c.toDataURL("image/jpeg", 0.92);
+    const res = await api("/api/biometrics/face/enroll", { method: "POST", body: JSON.stringify({ employeeId: selected.id, imageBase64: img, profileImage: img }) }, token);
+    setFaceMsg(res.data.message || res.data.status || "Done.");
+    if (res.ok) onRefreshEmployees();
+  }
+
+  useEffect(() => () => stopCam(), []);
+
+  const conflictCount = (conflicts.exactDuplicates?.length || 0) + (conflicts.recentConflicts?.length || 0);
+
+  return (
+    <div className="view">
+      <div className="view-header">
+        <div className="view-header-left">
+          <div className="eyebrow">Workforce Registry</div>
+          <h1 className="view-title">Employees</h1>
+        </div>
+        <div className="view-header-actions">
+          <button className="btn btn-secondary" onClick={resetForm}><Icon.Plus />New Employee</button>
+        </div>
+      </div>
+
+      <div className="employees-layout">
+        {/* Employee list */}
+        <div className="panel" style={{ position: "sticky", top: 70 }}>
+          <div className="panel-header">
+            <div>
+              <div className="panel-title">Employees</div>
+              <div className="panel-desc">{employees.length} total</div>
+            </div>
+          </div>
+          <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
+            <input
+              className="form-input" style={{ fontSize: 12, padding: "8px 12px" }}
+              placeholder="Search name, CNIC, code…"
+              value={query} onChange={e => setQuery(e.target.value)}
+            />
+          </div>
+          <div className="employee-list">
+            {filtered.length === 0 ? (
+              <div className="empty-state"><Icon.Users /><p>No employees found</p></div>
+            ) : filtered.map(emp => (
+              <button key={emp.id} className={`employee-card ${selected?.id === emp.id ? "active" : ""}`} onClick={() => loadEmployee(emp)}>
+                <div className="emp-avatar">{initials(emp.name)}</div>
+                <div className="emp-info">
+                  <div className="emp-name">{emp.name}</div>
+                  <div className="emp-meta">{emp.employee_code || "No code"} · {emp.cnic}</div>
+                  <div className="chip-row">
+                    <span className={`chip ${emp.has_fingerprint ? "chip-success" : "chip-muted"}`}>
+                      {emp.has_fingerprint ? `${emp.fingerprint_count || 1}× Finger` : "No FP"}
+                    </span>
+                    <span className={`chip ${emp.has_face ? "chip-warning" : "chip-muted"}`}>
+                      {emp.has_face ? "Face ✓" : "No Face"}
+                    </span>
+                    <span className={`chip ${emp.status === "active" ? "chip-success" : "chip-muted"}`}>
+                      {emp.status}
+                    </span>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Detail / Form panel */}
+        <div>
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <div className="panel-title">{form.id ? `Edit — ${selected?.name}` : "New Employee"}</div>
+                <div className="panel-desc">{form.id ? `ID: ${form.id}` : "Fill in details to register a new employee"}</div>
+              </div>
+              {form.id && (
+                <button className="btn btn-ghost btn-sm" onClick={resetForm}>Clear</button>
+              )}
+            </div>
+            <div className="panel-body">
+              {msg && <Banner type={msgType} onClose={() => setMsg("")}>{msg}</Banner>}
+
+              <form onSubmit={saveEmployee}>
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label className="form-label">Employee Code</label>
+                    <input className="form-input" value={form.employeeCode} placeholder="EMP-001"
+                      onChange={e => setForm(f => ({ ...f, employeeCode: e.target.value }))} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Status</label>
+                    <select className="form-select" value={form.status}
+                      onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Full Name *</label>
+                  <input className="form-input" value={form.name} placeholder="Muhammad Ahmad"
+                    required onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">CNIC *</label>
+                  <input className="form-input" value={form.cnic} placeholder="42101-1234567-1"
+                    required onChange={e => setForm(f => ({ ...f, cnic: e.target.value }))} />
+                </div>
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label className="form-label">Department</label>
+                    <input className="form-input" value={form.department} placeholder="Engineering"
+                      onChange={e => setForm(f => ({ ...f, department: e.target.value }))} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Designation</label>
+                    <input className="form-input" value={form.designation} placeholder="Senior Engineer"
+                      onChange={e => setForm(f => ({ ...f, designation: e.target.value }))} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                  <button className="btn btn-primary" type="submit" disabled={saving}>
+                    {saving ? "Saving…" : form.id ? "Save Changes" : "Create Employee"}
+                  </button>
+                  <button className="btn btn-ghost" type="button" onClick={resetForm}>Reset</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          {/* Biometric tools — only when employee selected */}
+          {selected && (
+            <>
+              {/* Fingerprint Slots */}
+              <div className="panel">
+                <div className="panel-header">
+                  <div>
+                    <div className="panel-title">Fingerprint Slots</div>
+                    <div className="panel-desc">
+                      {fingerprints.length} enrolled · preferred: {fingerprints.find(f => f.is_preferred)?.finger_code ? fingerLabel(fingerprints.find(f => f.is_preferred).finger_code) : "none"}
+                    </div>
+                  </div>
+                  <div className="panel-actions">
+                    {fpPlan?.missingRecommended?.[0] && (
+                      <button className="btn btn-primary btn-sm" onClick={() => launchEnroll(selected.id, fpPlan.missingRecommended[0].fingerCode)}>
+                        <Icon.Plus />Enroll Next Finger
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="panel-body">
+                  {conflictCount > 0 && (
+                    <Banner type="danger">
+                      {conflictCount} conflict signal{conflictCount > 1 ? "s" : ""} detected for this employee. Remove duplicate fingerprint slots before using global verification.
+                    </Banner>
+                  )}
+
+                  {fpPlan && (
+                    <div className="finger-grid" style={{ marginBottom: 16 }}>
+                      {fpPlan.recommended.map(item => (
+                        <div
+                          key={item.fingerCode}
+                          className={`finger-slot ${item.enrolled ? "enrolled" : ""} ${item.isPreferred ? "preferred" : ""}`}
+                          onClick={() => !item.enrolled && launchEnroll(selected.id, item.fingerCode)}
+                          style={{ cursor: item.enrolled ? "default" : "pointer" }}
+                          title={item.enrolled ? fingerLabel(item.fingerCode) : `Enroll ${fingerLabel(item.fingerCode)}`}
+                        >
+                          {item.isPreferred && <div className="preferred-pip" />}
+                          <div className="finger-slot-icon">{item.enrolled ? "🖐" : "+"}</div>
+                          <div className="finger-slot-label">{fingerLabel(item.fingerCode)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {fingerprints.length > 0 && (
+                    <div className="table-wrap">
+                      <table>
+                        <thead><tr><th>Finger</th><th>Format</th><th>Source</th><th>Updated</th><th>Actions</th></tr></thead>
+                        <tbody>
+                          {fingerprints.map(fp => (
+                            <tr key={fp.id}>
+                              <td>
+                                <strong style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  {fingerLabel(fp.finger_code)}
+                                  {fp.is_preferred ? <span className="badge badge-success">Preferred</span> : null}
+                                </strong>
+                              </td>
+                              <td><span>{fp.template_format}</span></td>
+                              <td><span>{fp.source || "—"}</span></td>
+                              <td><span>{fmtDate(fp.updated_at)}</span></td>
+                              <td>
+                                <div style={{ display: "flex", gap: 5 }}>
+                                  {!fp.is_preferred && (
+                                    <button className="btn btn-ghost btn-sm" onClick={() => setPreferred(selected.id, fp.id)} title="Set as preferred">
+                                      <Icon.Star />
+                                    </button>
+                                  )}
+                                  <button className="btn btn-ghost btn-sm" onClick={() => launchEnroll(selected.id, fp.finger_code)} title="Re-enroll">
+                                    <Icon.Refresh />
+                                  </button>
+                                  <button className="btn btn-danger btn-sm" onClick={() => deleteSlot(selected.id, fp.id)} title="Delete slot">
+                                    <Icon.Trash />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  <div style={{ display: "flex", gap: 8, marginTop: fingerprints.length > 0 ? 16 : 0, flexWrap: "wrap" }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => launchVerify(selected.id)}>
+                      <Icon.Fingerprint />Verify
+                    </button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => markManual(selected.id)}>
+                      <Icon.CheckCircle />Manual Attendance
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Face Enrollment */}
+              <div className="panel">
+                <div className="panel-header">
+                  <div>
+                    <div className="panel-title">Face Enrollment</div>
+                    <div className="panel-desc">Enroll face encoding for {selected.name}</div>
+                  </div>
+                  <span className={`badge ${selected.has_face ? "badge-success" : "badge-muted"}`}>
+                    {selected.has_face ? "Face enrolled" : "Not enrolled"}
+                  </span>
+                </div>
+                <div className="panel-body">
+                  <div className={`camera-wrap ${camActive ? "camera-active" : ""}`}>
+                    <video ref={videoRef} autoPlay muted playsInline />
+                    {!camActive && (
+                      <div className="camera-placeholder">
+                        <Icon.Camera />
+                        <p>Start camera to enroll face</p>
+                      </div>
+                    )}
+                    <div className="scan-line" />
+                    <div className="scan-corner tl" /><div className="scan-corner tr" />
+                    <div className="scan-corner bl" /><div className="scan-corner br" />
+                  </div>
+                  {camErr && <Banner type="danger">{camErr}</Banner>}
+                  {faceMsg && <Banner type="info">{faceMsg}</Banner>}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {!camActive
+                      ? <button className="btn btn-secondary btn-sm" onClick={startCam}><Icon.Camera />Start Camera</button>
+                      : <button className="btn btn-ghost btn-sm" onClick={stopCam}><Icon.CameraOff />Stop</button>}
+                    <button className="btn btn-primary btn-sm" onClick={enrollFace} disabled={!camActive}>
+                      <Icon.Face />Enroll Face
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Attendance History */}
+              <div className="panel">
+                <div className="panel-header">
+                  <div>
+                    <div className="panel-title">Attendance History</div>
+                    <div className="panel-desc">Last 60 records for {selected.name}</div>
+                  </div>
+                </div>
+                <div className="panel-body">
+                  {history.length === 0
+                    ? <div className="empty-state"><Icon.Clock /><p>No attendance records yet</p></div>
+                    : (
+                      <div className="timeline">
+                        {history.map(row => (
+                          <div key={row.id} className="tl-item">
+                            <div className={`tl-dot ${row.check_out ? "out" : "in"}`} />
+                            <div>
+                              <div className="tl-date">{row.date}</div>
+                              <div className="tl-times">
+                                In: {fmtTime(row.check_in)} · Out: {fmtTime(row.check_out)}
+                                {row.check_in_method && ` · ${row.check_in_method}`}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   REPORTS VIEW
+═══════════════════════════════════════════════════════════════════════════ */
+function ReportsView({ token }) {
+  const [rows, setRows] = useState([]);
+  const [filter, setFilter] = useState({ dateFrom: "", dateTo: "", method: "", status: "" });
+  const [loading, setLoading] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    const q = new URLSearchParams();
+    Object.entries(filter).forEach(([k, v]) => { if (v) q.set(k, v); });
+    const res = await api(`/api/attendance${q.toString() ? `?${q}` : ""}`, {}, token);
+    setLoading(false);
+    if (res.ok) setRows(res.data);
+  }
+
+  async function exportCsv() {
+    const q = new URLSearchParams();
+    Object.entries(filter).forEach(([k, v]) => { if (v) q.set(k, v); });
+    const res = await fetch(`${API}/api/attendance/export.csv${q.toString() ? `?${q}` : ""}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+    if (!res.ok) { alert("Export failed."); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `attendance-${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  }
+
+  useEffect(() => { load(); }, []);
+
+  return (
+    <div className="view">
+      <div className="view-header">
+        <div className="view-header-left">
+          <div className="eyebrow">Insights</div>
+          <h1 className="view-title">Attendance Reports</h1>
+        </div>
+        <div className="view-header-actions">
+          <button className="btn btn-secondary" onClick={exportCsv}><Icon.Download />Export CSV</button>
+          <button className="btn btn-primary" onClick={load}><Icon.Refresh />Refresh</button>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="filter-bar">
+          <div className="filter-group">
+            <span className="filter-label">Date From</span>
+            <input className="form-input" type="date" style={{ fontSize: 12 }}
+              value={filter.dateFrom} onChange={e => setFilter(f => ({ ...f, dateFrom: e.target.value }))} />
+          </div>
+          <div className="filter-group">
+            <span className="filter-label">Date To</span>
+            <input className="form-input" type="date" style={{ fontSize: 12 }}
+              value={filter.dateTo} onChange={e => setFilter(f => ({ ...f, dateTo: e.target.value }))} />
+          </div>
+          <div className="filter-group">
+            <span className="filter-label">Method</span>
+            <select className="form-select" style={{ fontSize: 12 }}
+              value={filter.method} onChange={e => setFilter(f => ({ ...f, method: e.target.value }))}>
+              <option value="">All methods</option>
+              <option value="fingerprint">Fingerprint</option>
+              <option value="face">Face</option>
+              <option value="manual">Manual</option>
+            </select>
+          </div>
+          <div className="filter-group">
+            <span className="filter-label">Status</span>
+            <select className="form-select" style={{ fontSize: 12 }}
+              value={filter.status} onChange={e => setFilter(f => ({ ...f, status: e.target.value }))}>
+              <option value="">All sessions</option>
+              <option value="open">Open</option>
+              <option value="closed">Closed</option>
+            </select>
+          </div>
+          <button className="btn btn-primary btn-sm" onClick={load} style={{ alignSelf: "flex-end" }}>Apply</button>
+        </div>
+
+        <div className="table-wrap">
+          {loading ? (
+            <div style={{ padding: 40, textAlign: "center", color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 12 }}>Loading…</div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>Department</th>
+                  <th>Date</th>
+                  <th>Check In</th>
+                  <th>Check Out</th>
+                  <th>Devices</th>
+                  <th>Methods</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length === 0 ? (
+                  <tr><td colSpan={8}><div className="empty-state"><Icon.Reports /><p>No attendance records match your filters</p></div></td></tr>
+                ) : rows.map(row => (
+                  <tr key={row.id}>
+                    <td><strong>{row.name}</strong><span>{row.employee_code}</span></td>
+                    <td>{row.department || "—"}</td>
+                    <td style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{row.date}</td>
+                    <td style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{fmtTime(row.check_in)}</td>
+                    <td style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>{fmtTime(row.check_out)}</td>
+                    <td><span>{row.check_in_device || "—"}</span></td>
+                    <td>
+                      {row.check_in_method && <span className="badge badge-info" style={{ marginRight: 4 }}>{row.check_in_method}</span>}
+                      {row.check_out_method && <span className="badge badge-muted">{row.check_out_method}</span>}
+                    </td>
+                    <td>
+                      {row.check_out
+                        ? <span className="badge badge-success">Closed</span>
+                        : <span className="badge badge-warning">Open</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   AUDIT VIEW
+═══════════════════════════════════════════════════════════════════════════ */
+function AuditView({ token }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  async function load() {
+    setLoading(true);
+    const res = await api("/api/audit-logs", {}, token);
+    setLoading(false);
+    if (res.ok) setRows(res.data);
+  }
+
+  useEffect(() => { load(); }, []);
+
+  const eventColor = (type) => {
+    if (type?.startsWith("attendance.check_in")) return "badge-success";
+    if (type?.startsWith("attendance.check_out")) return "badge-warning";
+    if (type?.includes("conflict")) return "badge-danger";
+    if (type?.includes("delete")) return "badge-danger";
+    if (type?.includes("create") || type?.includes("enroll")) return "badge-info";
+    return "badge-muted";
+  };
+
+  return (
+    <div className="view">
+      <div className="view-header">
+        <div className="view-header-left">
+          <div className="eyebrow">Security</div>
+          <h1 className="view-title">Audit Trail</h1>
+        </div>
+        <div className="view-header-actions">
+          <button className="btn btn-secondary" onClick={load}><Icon.Refresh />Refresh</button>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <div className="panel-title">All Events</div>
+            <div className="panel-desc">Complete tamper-evident log of all system actions</div>
+          </div>
+          <span className="badge badge-muted">{rows.length} events</span>
+        </div>
+        <div className="table-wrap">
+          {loading
+            ? <div style={{ padding: 40, textAlign: "center", color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 12 }}>Loading…</div>
+            : (
+              <table>
+                <thead>
+                  <tr><th>#</th><th>Event</th><th>Summary</th><th>Target</th><th>Actor</th><th>When</th></tr>
+                </thead>
+                <tbody>
+                  {rows.length === 0
+                    ? <tr><td colSpan={6}><div className="empty-state"><Icon.Shield /><p>No audit events</p></div></td></tr>
+                    : rows.map(row => (
+                      <tr key={row.id}>
+                        <td><span>{row.id}</span></td>
+                        <td><span className={`badge ${eventColor(row.event_type)}`}>{row.event_type}</span></td>
+                        <td><strong>{row.summary}</strong></td>
+                        <td><span>{row.target_type} #{row.target_id || "—"}</span></td>
+                        <td>{row.actor_name || "System / Device"}</td>
+                        <td style={{ fontFamily: "var(--font-mono)", fontSize: 11, whiteSpace: "nowrap" }}>{fmtDT(row.created_at)}</td>
+                      </tr>
+                    ))
+                  }
+                </tbody>
+              </table>
+            )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   ROOT APP
+═══════════════════════════════════════════════════════════════════════════ */
+export default function App() {
+  const [token, setToken] = useState(() => localStorage.getItem("ams_token") || "");
+  const [user, setUser] = useState(null);
+  const [activeView, setActiveView] = useState("dashboard");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  const [overview, setOverview] = useState(null);
+  const [auditRows, setAuditRows] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [stationStatus, setStationStatus] = useState({
+    fingerprint: { status: "loading", message: "Checking…" },
+    face: { status: "loading", message: "Checking…" },
+  });
+  const [latestEvent, setLatestEvent] = useState(null);
+  const [stationMsg, setStationMsg] = useState("");
+  const [conflicts, setConflicts] = useState({ exactDuplicates: [], recentConflicts: [] });
+
+  const conflictCount = (conflicts.exactDuplicates?.length || 0) + (conflicts.recentConflicts?.length || 0);
+
+  /* ── Auth ── */
+  useEffect(() => {
+    if (!token) { setUser(null); return; }
+    let cancel = false;
+    api("/api/auth/me", {}, token).then(res => {
+      if (cancel) return;
+      if (!res.ok) { localStorage.removeItem("ams_token"); setToken(""); setUser(null); return; }
+      setUser(res.data);
+    });
+    return () => { cancel = true; };
+  }, [token]);
+
+  /* ── Initial data load ── */
+  useEffect(() => {
+    if (!user) return;
+    refreshAll();
+  }, [user]);
+
+  /* ── Station polling ── */
+  useEffect(() => {
+    if (!user || activeView !== "station") return;
+    const id = setInterval(() => { refreshOverview(); refreshStation(); }, 5000);
+    return () => clearInterval(id);
+  }, [user, activeView]);
+
+  async function refreshOverview() {
+    const res = await api("/api/dashboard/overview", {}, token);
+    if (res.ok) {
+      setOverview(res.data);
+      setAuditRows(res.data.recentAuditLogs || []);
+      const evt = (res.data.recentAuditLogs || []).find(r => r.event_type?.startsWith("attendance."));
+      setLatestEvent(evt || null);
+    }
+  }
+
+  async function refreshEmployees() {
+    const res = await api("/api/employees", {}, token);
+    if (res.ok) setEmployees(res.data);
+  }
+
+  async function refreshStation() {
+    const [fp, face] = await Promise.all([
+      api("/api/biometrics/fingerprint/status", {}, token),
+      api("/api/biometrics/face/status", {}, token),
+    ]);
+    setStationStatus({ fingerprint: fp.data, face: face.data });
+  }
+
+  async function refreshConflicts() {
+    const res = await api("/api/biometrics/fingerprint/conflicts", {}, token);
+    if (res.ok) setConflicts(res.data);
+  }
+
+  function refreshAll() {
+    refreshOverview();
+    refreshEmployees();
+    refreshStation();
+    refreshConflicts();
+  }
+
+  async function launchVerify() {
+    const res = await api("/api/biometrics/fingerprint/launch-verify", { method: "POST", body: JSON.stringify({}) }, token);
+    setStationMsg(res.data.message || "Fingerprint verification launched.");
+    refreshStation(); refreshOverview();
+  }
+
+  function handleLogin(tok, usr) {
+    setToken(tok); setUser(usr); setActiveView("dashboard");
+  }
+
+  function handleLogout() {
+    localStorage.removeItem("ams_token");
+    setToken(""); setUser(null);
+  }
+
+  function handleNav(view) {
+    setActiveView(view);
+    setMobileOpen(false);
+  }
+
+  if (!user) return <AuthPage onLogin={handleLogin} />;
+
+  return (
+    <div className="app-shell">
+      <Sidebar
+        user={user}
+        activeView={activeView}
+        onNav={handleNav}
+        onLogout={handleLogout}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(c => !c)}
+        conflictCount={conflictCount}
+        mobileOpen={mobileOpen}
+        onOverlayClick={() => setMobileOpen(false)}
+      />
+
+      <div className="workspace">
+        <Topbar
+          view={activeView}
+          fpStatus={stationStatus.fingerprint}
+          onMobileMenu={() => setMobileOpen(o => !o)}
+          onRefresh={refreshAll}
+        />
+
+        {activeView === "dashboard" && (
+          <DashboardView
+            overview={overview}
+            auditRows={auditRows}
+            conflictCount={conflictCount}
+            onRefresh={refreshOverview}
+          />
+        )}
+
+        {activeView === "station" && (
+          <StationView
+            token={token}
+            stationStatus={stationStatus}
+            latestEvent={latestEvent}
+            conflictCount={conflictCount}
+            stationMsg={stationMsg}
+            onRefresh={refreshOverview}
+            onLaunchVerify={launchVerify}
+            onRefreshStatus={refreshStation}
+          />
+        )}
+
+        {activeView === "employees" && (
+          <EmployeesView
+            token={token}
+            employees={employees}
+            onRefreshEmployees={refreshEmployees}
+          />
+        )}
+
+        {activeView === "reports" && <ReportsView token={token} />}
+        {activeView === "audit"   && <AuditView   token={token} />}
+      </div>
+    </div>
+  );
+}
