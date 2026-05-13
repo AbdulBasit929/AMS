@@ -31,7 +31,9 @@ router.get("/", requireAuth, async (req, res) => {
        (COALESCE(fp.fingerprint_count, 0) > 0 OR e.fingerprint IS NOT NULL) AS has_fingerprint,
        COALESCE(fp.fingerprint_count, CASE WHEN e.fingerprint IS NOT NULL THEN 1 ELSE 0 END) AS fingerprint_count,
        COALESCE(fp.enrolled_fingers, CASE WHEN e.fingerprint IS NOT NULL THEN 'legacy_primary' ELSE NULL END) AS enrolled_fingers,
-       e.face_encoding IS NOT NULL AS has_face
+       e.face_encoding IS NOT NULL AS has_face,
+       shift.shift_name,
+       shift.shift_code
      FROM employees e
      LEFT JOIN (
        SELECT
@@ -41,6 +43,16 @@ router.get("/", requireAuth, async (req, res) => {
        FROM employee_fingerprints
        GROUP BY employee_id
      ) fp ON fp.employee_id = e.id
+     LEFT JOIN (
+       SELECT
+         sa.employee_id,
+         s.name AS shift_name,
+         s.shift_code
+       FROM employee_shift_assignments sa
+       INNER JOIN attendance_shifts s ON s.id = sa.shift_id
+       WHERE sa.effective_from <= CURDATE()
+         AND (sa.effective_to IS NULL OR sa.effective_to >= CURDATE())
+     ) shift ON shift.employee_id = e.id
      WHERE (? = '%%' OR e.name LIKE ? OR e.cnic LIKE ? OR e.employee_code LIKE ?)
        AND (? IS NULL OR e.status = ?)
        AND (? IS NULL OR e.department = ?)
@@ -67,7 +79,9 @@ router.get("/:id", requireAuth, async (req, res) => {
        (COALESCE(fp.fingerprint_count, 0) > 0 OR e.fingerprint IS NOT NULL) AS has_fingerprint,
        COALESCE(fp.fingerprint_count, CASE WHEN e.fingerprint IS NOT NULL THEN 1 ELSE 0 END) AS fingerprint_count,
        COALESCE(fp.enrolled_fingers, CASE WHEN e.fingerprint IS NOT NULL THEN 'legacy_primary' ELSE NULL END) AS enrolled_fingers,
-       e.face_encoding IS NOT NULL AS has_face
+       e.face_encoding IS NOT NULL AS has_face,
+       shift.shift_name,
+       shift.shift_code
      FROM employees e
      LEFT JOIN (
        SELECT
@@ -77,6 +91,16 @@ router.get("/:id", requireAuth, async (req, res) => {
        FROM employee_fingerprints
        GROUP BY employee_id
      ) fp ON fp.employee_id = e.id
+     LEFT JOIN (
+       SELECT
+         sa.employee_id,
+         s.name AS shift_name,
+         s.shift_code
+       FROM employee_shift_assignments sa
+       INNER JOIN attendance_shifts s ON s.id = sa.shift_id
+       WHERE sa.effective_from <= CURDATE()
+         AND (sa.effective_to IS NULL OR sa.effective_to >= CURDATE())
+     ) shift ON shift.employee_id = e.id
      WHERE e.id = ?
      LIMIT 1`,
     [req.params.id]
@@ -186,7 +210,15 @@ router.get("/:id/attendance", requireAuth, async (req, res) => {
        check_out_method,
        check_in_device,
        check_out_device,
-       verification_score
+       verification_score,
+       status,
+       minutes_late,
+       work_minutes,
+       overtime_minutes,
+       requires_approval,
+       review_reason,
+       scheduled_start,
+       scheduled_end
      FROM attendance
      WHERE employee_id = ?
      ORDER BY date DESC, id DESC

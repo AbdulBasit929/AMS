@@ -41,6 +41,9 @@ router.get("/", requireAuth, async (req, res) => {
     filters.push("a.check_in IS NOT NULL AND a.check_out IS NULL");
   } else if (status === "closed") {
     filters.push("a.check_in IS NOT NULL AND a.check_out IS NOT NULL");
+  } else if (status) {
+    filters.push("a.status = ?");
+    params.push(status);
   }
 
   const whereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
@@ -60,7 +63,15 @@ router.get("/", requireAuth, async (req, res) => {
        a.check_out_method,
        a.check_in_device,
        a.check_out_device,
-       a.verification_score
+       a.verification_score,
+       a.status,
+       a.minutes_late,
+       a.work_minutes,
+       a.overtime_minutes,
+       a.requires_approval,
+       a.review_reason,
+       a.scheduled_start,
+       a.scheduled_end
      FROM attendance a
      INNER JOIN employees e ON e.id = a.employee_id
      ${whereClause}
@@ -107,6 +118,9 @@ router.get("/export.csv", requireAuth, async (req, res) => {
     filters.push("a.check_in IS NOT NULL AND a.check_out IS NULL");
   } else if (status === "closed") {
     filters.push("a.check_in IS NOT NULL AND a.check_out IS NOT NULL");
+  } else if (status) {
+    filters.push("a.status = ?");
+    params.push(status);
   }
 
   const whereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
@@ -126,7 +140,15 @@ router.get("/export.csv", requireAuth, async (req, res) => {
        a.check_out_method,
        a.check_in_device,
        a.check_out_device,
-       a.verification_score
+       a.verification_score,
+       a.status,
+       a.minutes_late,
+       a.work_minutes,
+       a.overtime_minutes,
+       a.requires_approval,
+       a.review_reason,
+       a.scheduled_start,
+       a.scheduled_end
      FROM attendance a
      INNER JOIN employees e ON e.id = a.employee_id
      ${whereClause}
@@ -148,7 +170,15 @@ router.get("/export.csv", requireAuth, async (req, res) => {
     "Check Out Method",
     "Check In Device",
     "Check Out Device",
-    "Verification Score"
+    "Verification Score",
+    "Attendance Status",
+    "Minutes Late",
+    "Work Minutes",
+    "Overtime Minutes",
+    "Needs Approval",
+    "Review Reason",
+    "Scheduled Start",
+    "Scheduled End"
   ];
 
   const csvRows = [
@@ -167,7 +197,15 @@ router.get("/export.csv", requireAuth, async (req, res) => {
       row.check_out_method || "",
       row.check_in_device || "",
       row.check_out_device || "",
-      row.verification_score ?? ""
+      row.verification_score ?? "",
+      row.status || "",
+      row.minutes_late ?? "",
+      row.work_minutes ?? "",
+      row.overtime_minutes ?? "",
+      row.requires_approval ?? "",
+      row.review_reason || "",
+      row.scheduled_start || "",
+      row.scheduled_end || ""
     ].map((value) => `"${String(value).replace(/"/g, '""')}"`).join(",")))
   ];
 
@@ -177,7 +215,7 @@ router.get("/export.csv", requireAuth, async (req, res) => {
 });
 
 router.post("/manual-mark", requireAuth, requireRole("admin", "operator"), async (req, res) => {
-  const { employeeId } = req.body;
+  const { employeeId, timestamp = null } = req.body;
 
   if (!employeeId) {
     return res.status(400).json({ message: "employeeId is required" });
@@ -188,6 +226,7 @@ router.post("/manual-mark", requireAuth, requireRole("admin", "operator"), async
     method: "manual",
     stationName: process.env.STATION_NAME || "Manual Desk",
     actorUserId: req.user.id,
+    at: timestamp ? new Date(timestamp) : new Date(),
     metadata: {
       initiatedByRole: req.user.role
     }

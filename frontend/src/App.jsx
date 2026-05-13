@@ -180,6 +180,11 @@ function fmtDT(dt) {
   return new Date(dt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+function fmtDateOnly(dt) {
+  if (!dt) return "â€”";
+  return String(dt).slice(0, 10);
+}
+
 function fingerLabel(code) {
   return (code || "").split("_").filter(Boolean).map(p => p[0].toUpperCase() + p.slice(1)).join(" ");
 }
@@ -421,6 +426,7 @@ function Sidebar({ user, activeView, onNav, onLogout, collapsed, onToggleCollaps
     ];
     if (user?.role === "admin" || user?.role === "operator") {
       base.splice(2, 0, { id: "employees", label: "Employees", icon: Icon.Employees });
+      base.splice(3, 0, { id: "workforce", label: "Workforce Control", icon: Icon.Shield });
     }
     return base;
   }, [user]);
@@ -488,6 +494,7 @@ function Topbar({ view, fpStatus, onMobileMenu, onRefresh }) {
     dashboard: { eye: "Live Operations", title: "Dashboard" },
     station:   { eye: "Operator Console", title: "Attendance Station" },
     employees: { eye: "Workforce Registry", title: "Employees" },
+    workforce: { eye: "Governance", title: "Workforce Control" },
     reports:   { eye: "Insights", title: "Reports" },
     audit:     { eye: "Security", title: "Audit Trail" },
   };
@@ -523,6 +530,7 @@ function Topbar({ view, fpStatus, onMobileMenu, onRefresh }) {
 function DashboardView({ overview, auditRows, conflictCount, onRefresh }) {
   const stats = overview?.employeeStats || {};
   const today = overview?.todayStats || {};
+  const workflow = overview?.workflowStats || {};
 
   return (
     <div className="view">
@@ -543,6 +551,8 @@ function DashboardView({ overview, auditRows, conflictCount, onRefresh }) {
         <MetricCard label="Face Enrolled"       value={stats.faceEnrolled ?? 0}       icon={Icon.Face} tone="warning" />
         <MetricCard label="Today Check-Ins"     value={today.checkIns ?? 0}           icon={Icon.TrendUp} />
         <MetricCard label="Open Sessions"       value={today.openSessions ?? 0}       icon={Icon.Clock} tone={today.openSessions > 0 ? "danger" : ""} />
+        <MetricCard label="Late Arrivals"       value={today.lateArrivals ?? 0}       icon={Icon.AlertTriangle} tone={today.lateArrivals > 0 ? "warning" : ""} />
+        <MetricCard label="Pending Approvals"   value={workflow.pendingApprovals ?? 0} icon={Icon.Shield} tone={workflow.pendingApprovals > 0 ? "warning" : ""} />
       </div>
 
       {conflictCount > 0 && (
@@ -587,9 +597,9 @@ function DashboardView({ overview, auditRows, conflictCount, onRefresh }) {
                     {row.check_out_method && <span className="badge badge-muted" style={{ marginLeft: 4 }}>{row.check_out_method}</span>}
                   </td>
                   <td>
-                    {row.check_out
-                      ? <span className="badge badge-success"><span className="badge-dot" />Closed</span>
-                      : <span className="badge badge-warning"><span className="badge-dot" />Open</span>}
+                    <span className={`badge ${row.status === "pending_review" ? "badge-warning" : row.status === "late" || row.status === "half_day" ? "badge-info" : row.check_out ? "badge-success" : "badge-warning"}`}>
+                      <span className="badge-dot" />{row.status || (row.check_out ? "closed" : "open")}
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -1576,6 +1586,397 @@ function EmployeesView({ token, employees, onRefreshEmployees }) {
 /* ════════════════════════════════════════════════════════════════════════════
    REPORTS VIEW
 ═══════════════════════════════════════════════════════════════════════════ */
+function WorkforceView({ token, employees }) {
+  const [overview, setOverview] = useState(null);
+  const [shifts, setShifts] = useState([]);
+  const [devices, setDevices] = useState([]);
+  const [holidays, setHolidays] = useState([]);
+  const [leaveRequests, setLeaveRequests] = useState([]);
+  const [approvalRequests, setApprovalRequests] = useState([]);
+  const [assignments, setAssignments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [banner, setBanner] = useState("");
+
+  const [shiftForm, setShiftForm] = useState({
+    name: "",
+    shiftCode: "",
+    startTime: "09:00:00",
+    endTime: "17:00:00",
+    graceMinutes: 15,
+    overtimeAfterMinutes: 30
+  });
+  const [deviceForm, setDeviceForm] = useState({
+    deviceName: "",
+    stationName: "",
+    locationLabel: "",
+    verificationMode: "either_biometric",
+    allowedMethods: ["fingerprint", "face", "manual"]
+  });
+  const [holidayForm, setHolidayForm] = useState({
+    holidayDate: "",
+    name: "",
+    holidayType: "company"
+  });
+  const [leaveForm, setLeaveForm] = useState({
+    employeeId: "",
+    leaveType: "annual",
+    startDate: "",
+    endDate: "",
+    partialDay: "none",
+    reason: ""
+  });
+  const [assignmentForm, setAssignmentForm] = useState({
+    employeeId: "",
+    shiftId: "",
+    effectiveFrom: "",
+    effectiveTo: ""
+  });
+  const [approvalForm, setApprovalForm] = useState({
+    employeeId: "",
+    requestType: "manual_regularization",
+    attendanceId: "",
+    requestedCheckIn: "",
+    requestedCheckOut: "",
+    reason: ""
+  });
+
+  async function loadAll() {
+    setLoading(true);
+    const [overviewRes, shiftsRes, devicesRes, holidaysRes, leaveRes, approvalsRes, assignmentsRes] = await Promise.all([
+      api("/api/workforce/overview", {}, token),
+      api("/api/workforce/shifts", {}, token),
+      api("/api/workforce/device-policies", {}, token),
+      api("/api/workforce/holidays", {}, token),
+      api("/api/workforce/leave-requests", {}, token),
+      api("/api/workforce/approval-requests", {}, token),
+      api("/api/workforce/assignments", {}, token),
+    ]);
+
+    if (overviewRes.ok) setOverview(overviewRes.data);
+    if (shiftsRes.ok) setShifts(shiftsRes.data);
+    if (devicesRes.ok) setDevices(devicesRes.data);
+    if (holidaysRes.ok) setHolidays(holidaysRes.data);
+    if (leaveRes.ok) setLeaveRequests(leaveRes.data);
+    if (approvalsRes.ok) setApprovalRequests(approvalsRes.data);
+    if (assignmentsRes.ok) setAssignments(assignmentsRes.data);
+    setLoading(false);
+  }
+
+  useEffect(() => { loadAll(); }, []);
+
+  async function submitShift(e) {
+    e.preventDefault();
+    const res = await api("/api/workforce/shifts", { method: "POST", body: JSON.stringify(shiftForm) }, token);
+    if (!res.ok) return setBanner(res.data.message || "Failed to save shift");
+    setBanner(`Shift '${res.data.name}' saved.`);
+    setShiftForm({ name: "", shiftCode: "", startTime: "09:00:00", endTime: "17:00:00", graceMinutes: 15, overtimeAfterMinutes: 30 });
+    loadAll();
+  }
+
+  async function submitDevice(e) {
+    e.preventDefault();
+    const res = await api("/api/workforce/device-policies", { method: "POST", body: JSON.stringify(deviceForm) }, token);
+    if (!res.ok) return setBanner(res.data.message || "Failed to save device policy");
+    setBanner(`Device policy '${res.data.deviceName}' saved.`);
+    setDeviceForm({ deviceName: "", stationName: "", locationLabel: "", verificationMode: "either_biometric", allowedMethods: ["fingerprint", "face", "manual"] });
+    loadAll();
+  }
+
+  async function submitHoliday(e) {
+    e.preventDefault();
+    const res = await api("/api/workforce/holidays", { method: "POST", body: JSON.stringify(holidayForm) }, token);
+    if (!res.ok) return setBanner(res.data.message || "Failed to save holiday");
+    setBanner(`Holiday '${res.data.name}' saved.`);
+    setHolidayForm({ holidayDate: "", name: "", holidayType: "company" });
+    loadAll();
+  }
+
+  async function submitLeave(e) {
+    e.preventDefault();
+    const res = await api("/api/workforce/leave-requests", { method: "POST", body: JSON.stringify(leaveForm) }, token);
+    if (!res.ok) return setBanner(res.data.message || "Failed to create leave request");
+    setBanner(`Leave request created for employee #${leaveForm.employeeId}.`);
+    setLeaveForm({ employeeId: "", leaveType: "annual", startDate: "", endDate: "", partialDay: "none", reason: "" });
+    loadAll();
+  }
+
+  async function submitAssignment(e) {
+    e.preventDefault();
+    const res = await api("/api/workforce/assignments", { method: "POST", body: JSON.stringify(assignmentForm) }, token);
+    if (!res.ok) return setBanner(res.data.message || "Failed to assign shift");
+    setBanner(`Shift assigned to employee #${assignmentForm.employeeId}.`);
+    setAssignmentForm({ employeeId: "", shiftId: "", effectiveFrom: "", effectiveTo: "" });
+    loadAll();
+  }
+
+  async function submitApprovalRequest(e) {
+    e.preventDefault();
+    const payload = {
+      ...approvalForm,
+      employeeId: Number(approvalForm.employeeId),
+      attendanceId: approvalForm.attendanceId ? Number(approvalForm.attendanceId) : null,
+      requestedCheckIn: approvalForm.requestedCheckIn || null,
+      requestedCheckOut: approvalForm.requestedCheckOut || null
+    };
+    const res = await api("/api/workforce/approval-requests", { method: "POST", body: JSON.stringify(payload) }, token);
+    if (!res.ok) return setBanner(res.data.message || "Failed to create approval request");
+    setBanner(`Approval request created for employee #${payload.employeeId}.`);
+    setApprovalForm({ employeeId: "", requestType: "manual_regularization", attendanceId: "", requestedCheckIn: "", requestedCheckOut: "", reason: "" });
+    loadAll();
+  }
+
+  async function decideLeave(id, decision) {
+    const res = await api(`/api/workforce/leave-requests/${id}/decision`, { method: "POST", body: JSON.stringify({ decision }) }, token);
+    if (!res.ok) return setBanner(res.data.message || "Failed to update leave request");
+    setBanner(`Leave request #${id} ${decision}.`);
+    loadAll();
+  }
+
+  async function decideApproval(id, decision) {
+    const res = await api(`/api/workforce/approval-requests/${id}/decision`, { method: "POST", body: JSON.stringify({ decision }) }, token);
+    if (!res.ok) return setBanner(res.data.message || "Failed to update approval request");
+    setBanner(`Approval request #${id} ${decision}.`);
+    loadAll();
+  }
+
+  function toggleAllowedMethod(method) {
+    setDeviceForm((current) => {
+      const next = current.allowedMethods.includes(method)
+        ? current.allowedMethods.filter((item) => item !== method)
+        : [...current.allowedMethods, method];
+      return { ...current, allowedMethods: next.length ? next : ["manual"] };
+    });
+  }
+
+  return (
+    <div className="view">
+      <div className="view-header">
+        <div className="view-header-left">
+          <div className="eyebrow">Governance</div>
+          <h1 className="view-title">Workforce Control</h1>
+        </div>
+        <div className="view-header-actions">
+          <button className="btn btn-secondary" onClick={loadAll}><Icon.Refresh />Refresh</button>
+        </div>
+      </div>
+
+      {banner && <Banner type="info" onClose={() => setBanner("")}>{banner}</Banner>}
+
+      <div className="metric-grid" style={{ marginBottom: 24 }}>
+        <MetricCard label="Active Shifts" value={overview?.summary?.activeShifts ?? 0} icon={Icon.Clock} />
+        <MetricCard label="Active Devices" value={overview?.summary?.activeDevices ?? 0} icon={Icon.Shield} />
+        <MetricCard label="Pending Leave" value={overview?.summary?.pendingLeaveRequests ?? 0} tone="warning" icon={Icon.Users} />
+        <MetricCard label="Pending Approvals" value={overview?.summary?.pendingApprovals ?? 0} tone="warning" icon={Icon.AlertTriangle} />
+      </div>
+
+      <div className="content-grid cols-2" style={{ alignItems: "start" }}>
+        <div className="panel">
+          <div className="panel-header"><div><div className="panel-title">Shift Definitions</div><div className="panel-desc">Grace, overtime, and workday rules</div></div></div>
+          <div className="panel-body">
+            <form onSubmit={submitShift} className="stack">
+              <div className="form-grid cols-2">
+                <input className="form-input" placeholder="Shift name" value={shiftForm.name} onChange={e => setShiftForm(f => ({ ...f, name: e.target.value }))} />
+                <input className="form-input" placeholder="Shift code" value={shiftForm.shiftCode} onChange={e => setShiftForm(f => ({ ...f, shiftCode: e.target.value }))} />
+                <input className="form-input" type="time" value={shiftForm.startTime} onChange={e => setShiftForm(f => ({ ...f, startTime: e.target.value }))} />
+                <input className="form-input" type="time" value={shiftForm.endTime} onChange={e => setShiftForm(f => ({ ...f, endTime: e.target.value }))} />
+                <input className="form-input" type="number" placeholder="Grace minutes" value={shiftForm.graceMinutes} onChange={e => setShiftForm(f => ({ ...f, graceMinutes: Number(e.target.value) }))} />
+                <input className="form-input" type="number" placeholder="OT after minutes" value={shiftForm.overtimeAfterMinutes} onChange={e => setShiftForm(f => ({ ...f, overtimeAfterMinutes: Number(e.target.value) }))} />
+              </div>
+              <button className="btn btn-primary" type="submit"><Icon.Plus />Save Shift</button>
+            </form>
+            <div className="table-wrap" style={{ marginTop: 18 }}>
+              <table>
+                <thead><tr><th>Shift</th><th>Hours</th><th>Grace</th><th>Overtime</th></tr></thead>
+                <tbody>
+                  {loading ? <tr><td colSpan={4}>Loading…</td></tr> : shifts.map((shift) => (
+                    <tr key={shift.id}>
+                      <td><strong>{shift.name}</strong><span>{shift.shift_code || "â€”"}</span></td>
+                      <td>{shift.start_time} - {shift.end_time}</td>
+                      <td>{shift.grace_minutes} min</td>
+                      <td>{shift.overtime_after_minutes} min</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-header"><div><div className="panel-title">Device-Level Policies</div><div className="panel-desc">Biometric method routing and station controls</div></div></div>
+          <div className="panel-body">
+            <form onSubmit={submitDevice} className="stack">
+              <div className="form-grid cols-2">
+                <input className="form-input" placeholder="Device name" value={deviceForm.deviceName} onChange={e => setDeviceForm(f => ({ ...f, deviceName: e.target.value }))} />
+                <input className="form-input" placeholder="Station name" value={deviceForm.stationName} onChange={e => setDeviceForm(f => ({ ...f, stationName: e.target.value }))} />
+                <input className="form-input" placeholder="Location label" value={deviceForm.locationLabel} onChange={e => setDeviceForm(f => ({ ...f, locationLabel: e.target.value }))} />
+                <select className="form-select" value={deviceForm.verificationMode} onChange={e => setDeviceForm(f => ({ ...f, verificationMode: e.target.value }))}>
+                  <option value="either_biometric">Either biometric</option>
+                  <option value="single">Single</option>
+                  <option value="face_first">Face first</option>
+                  <option value="fingerprint_first">Fingerprint first</option>
+                  <option value="manual_only">Manual only</option>
+                </select>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {["fingerprint", "face", "manual"].map((method) => (
+                  <button key={method} type="button" className={`btn ${deviceForm.allowedMethods.includes(method) ? "btn-primary" : "btn-ghost"} btn-sm`} onClick={() => toggleAllowedMethod(method)}>
+                    {method}
+                  </button>
+                ))}
+              </div>
+              <button className="btn btn-primary" type="submit"><Icon.Plus />Save Device Policy</button>
+            </form>
+            <div className="table-wrap" style={{ marginTop: 18 }}>
+              <table>
+                <thead><tr><th>Station</th><th>Methods</th><th>Mode</th><th>Status</th></tr></thead>
+                <tbody>
+                  {devices.map((device) => (
+                    <tr key={device.id}>
+                      <td><strong>{device.device_name}</strong><span>{device.station_name}</span></td>
+                      <td>{(device.allowedMethods || []).join(", ")}</td>
+                      <td>{device.verification_mode}</td>
+                      <td><span className={`badge ${device.status === "active" ? "badge-success" : "badge-muted"}`}>{device.status}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-header"><div><div className="panel-title">Calendar And Leave</div><div className="panel-desc">Holidays, leave, and planned absences</div></div></div>
+          <div className="panel-body">
+            <form onSubmit={submitHoliday} className="stack" style={{ marginBottom: 18 }}>
+              <div className="form-grid cols-2">
+                <input className="form-input" type="date" value={holidayForm.holidayDate} onChange={e => setHolidayForm(f => ({ ...f, holidayDate: e.target.value }))} />
+                <input className="form-input" placeholder="Holiday name" value={holidayForm.name} onChange={e => setHolidayForm(f => ({ ...f, name: e.target.value }))} />
+              </div>
+              <button className="btn btn-secondary" type="submit"><Icon.Plus />Add Holiday</button>
+            </form>
+            <form onSubmit={submitLeave} className="stack">
+              <div className="form-grid cols-2">
+                <select className="form-select" value={leaveForm.employeeId} onChange={e => setLeaveForm(f => ({ ...f, employeeId: e.target.value }))}>
+                  <option value="">Select employee</option>
+                  {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
+                </select>
+                <select className="form-select" value={leaveForm.leaveType} onChange={e => setLeaveForm(f => ({ ...f, leaveType: e.target.value }))}>
+                  <option value="annual">Annual</option>
+                  <option value="sick">Sick</option>
+                  <option value="casual">Casual</option>
+                  <option value="unpaid">Unpaid</option>
+                </select>
+                <input className="form-input" type="date" value={leaveForm.startDate} onChange={e => setLeaveForm(f => ({ ...f, startDate: e.target.value }))} />
+                <input className="form-input" type="date" value={leaveForm.endDate} onChange={e => setLeaveForm(f => ({ ...f, endDate: e.target.value }))} />
+                <select className="form-select" value={leaveForm.partialDay} onChange={e => setLeaveForm(f => ({ ...f, partialDay: e.target.value }))}>
+                  <option value="none">Full day</option>
+                  <option value="first_half">First half</option>
+                  <option value="second_half">Second half</option>
+                </select>
+                <input className="form-input" placeholder="Reason" value={leaveForm.reason} onChange={e => setLeaveForm(f => ({ ...f, reason: e.target.value }))} />
+              </div>
+              <button className="btn btn-primary" type="submit"><Icon.Plus />Create Leave Request</button>
+            </form>
+            <div className="table-wrap" style={{ marginTop: 18 }}>
+              <table>
+                <thead><tr><th>Type</th><th>Scope</th><th>Dates</th><th>Status</th><th>Action</th></tr></thead>
+                <tbody>
+                  {holidays.slice(0, 5).map((holiday) => (
+                    <tr key={`holiday-${holiday.id}`}>
+                      <td><span className="badge badge-info">Holiday</span></td>
+                      <td>{holiday.name}</td>
+                      <td>{fmtDateOnly(holiday.holiday_date)}</td>
+                      <td>{holiday.holiday_type}</td>
+                      <td>â€”</td>
+                    </tr>
+                  ))}
+                  {leaveRequests.slice(0, 8).map((request) => (
+                    <tr key={`leave-${request.id}`}>
+                      <td><span className="badge badge-warning">{request.leave_type}</span></td>
+                      <td>{request.employee_name}</td>
+                      <td>{fmtDateOnly(request.start_date)} â†’ {fmtDateOnly(request.end_date)}</td>
+                      <td><span className={`badge ${request.status === "approved" ? "badge-success" : request.status === "rejected" ? "badge-danger" : "badge-warning"}`}>{request.status}</span></td>
+                      <td>{request.status === "pending" && <div style={{ display: "flex", gap: 6 }}><button className="btn btn-secondary btn-sm" onClick={() => decideLeave(request.id, "approved")}>Approve</button><button className="btn btn-ghost btn-sm" onClick={() => decideLeave(request.id, "rejected")}>Reject</button></div>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-header"><div><div className="panel-title">Assignments And Exceptions</div><div className="panel-desc">Shift mapping and missed-punch approvals</div></div></div>
+          <div className="panel-body">
+            <form onSubmit={submitAssignment} className="stack" style={{ marginBottom: 18 }}>
+              <div className="form-grid cols-2">
+                <select className="form-select" value={assignmentForm.employeeId} onChange={e => setAssignmentForm(f => ({ ...f, employeeId: e.target.value }))}>
+                  <option value="">Select employee</option>
+                  {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
+                </select>
+                <select className="form-select" value={assignmentForm.shiftId} onChange={e => setAssignmentForm(f => ({ ...f, shiftId: e.target.value }))}>
+                  <option value="">Select shift</option>
+                  {shifts.map((shift) => <option key={shift.id} value={shift.id}>{shift.name}</option>)}
+                </select>
+                <input className="form-input" type="date" value={assignmentForm.effectiveFrom} onChange={e => setAssignmentForm(f => ({ ...f, effectiveFrom: e.target.value }))} />
+                <input className="form-input" type="date" value={assignmentForm.effectiveTo} onChange={e => setAssignmentForm(f => ({ ...f, effectiveTo: e.target.value }))} />
+              </div>
+              <button className="btn btn-secondary" type="submit"><Icon.Plus />Assign Shift</button>
+            </form>
+
+            <form onSubmit={submitApprovalRequest} className="stack">
+              <div className="form-grid cols-2">
+                <select className="form-select" value={approvalForm.employeeId} onChange={e => setApprovalForm(f => ({ ...f, employeeId: e.target.value }))}>
+                  <option value="">Select employee</option>
+                  {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
+                </select>
+                <select className="form-select" value={approvalForm.requestType} onChange={e => setApprovalForm(f => ({ ...f, requestType: e.target.value }))}>
+                  <option value="manual_regularization">Manual regularization</option>
+                  <option value="missed_check_in">Missed check-in</option>
+                  <option value="missed_check_out">Missed check-out</option>
+                  <option value="overtime_adjustment">Overtime adjustment</option>
+                </select>
+                <input className="form-input" type="datetime-local" value={approvalForm.requestedCheckIn} onChange={e => setApprovalForm(f => ({ ...f, requestedCheckIn: e.target.value }))} />
+                <input className="form-input" type="datetime-local" value={approvalForm.requestedCheckOut} onChange={e => setApprovalForm(f => ({ ...f, requestedCheckOut: e.target.value }))} />
+                <input className="form-input" placeholder="Attendance ID (optional)" value={approvalForm.attendanceId} onChange={e => setApprovalForm(f => ({ ...f, attendanceId: e.target.value }))} />
+                <input className="form-input" placeholder="Reason" value={approvalForm.reason} onChange={e => setApprovalForm(f => ({ ...f, reason: e.target.value }))} />
+              </div>
+              <button className="btn btn-primary" type="submit"><Icon.Plus />Raise Approval Request</button>
+            </form>
+
+            <div className="table-wrap" style={{ marginTop: 18 }}>
+              <table>
+                <thead><tr><th>Employee</th><th>Shift / Request</th><th>Effective / Created</th><th>Status</th><th>Action</th></tr></thead>
+                <tbody>
+                  {assignments.slice(0, 6).map((assignment) => (
+                    <tr key={`assignment-${assignment.id}`}>
+                      <td>{assignment.employee_name}</td>
+                      <td>{assignment.shift_name}</td>
+                      <td>{fmtDateOnly(assignment.effective_from)} â†’ {assignment.effective_to ? fmtDateOnly(assignment.effective_to) : "Open"}</td>
+                      <td><span className="badge badge-info">Assigned</span></td>
+                      <td>â€”</td>
+                    </tr>
+                  ))}
+                  {approvalRequests.slice(0, 8).map((request) => (
+                    <tr key={`approval-${request.id}`}>
+                      <td>{request.employee_name}</td>
+                      <td>{request.request_type}</td>
+                      <td>{fmtDT(request.created_at)}</td>
+                      <td><span className={`badge ${request.status === "approved" ? "badge-success" : request.status === "rejected" ? "badge-danger" : "badge-warning"}`}>{request.status}</span></td>
+                      <td>{request.status === "pending" && <div style={{ display: "flex", gap: 6 }}><button className="btn btn-secondary btn-sm" onClick={() => decideApproval(request.id, "approved")}>Approve</button><button className="btn btn-ghost btn-sm" onClick={() => decideApproval(request.id, "rejected")}>Reject</button></div>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ReportsView({ token }) {
   const [rows, setRows] = useState([]);
   const [filter, setFilter] = useState({ dateFrom: "", dateTo: "", method: "", status: "" });
@@ -1648,6 +2049,11 @@ function ReportsView({ token }) {
               <option value="">All sessions</option>
               <option value="open">Open</option>
               <option value="closed">Closed</option>
+              <option value="late">Late</option>
+              <option value="half_day">Half day</option>
+              <option value="pending_review">Pending review</option>
+              <option value="holiday_present">Holiday present</option>
+              <option value="on_leave">On leave</option>
             </select>
           </div>
           <button className="btn btn-primary btn-sm" onClick={load} style={{ alignSelf: "flex-end" }}>Apply</button>
@@ -1668,11 +2074,13 @@ function ReportsView({ token }) {
                   <th>Devices</th>
                   <th>Methods</th>
                   <th>Status</th>
+                  <th>Late</th>
+                  <th>Work / OT</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.length === 0 ? (
-                  <tr><td colSpan={8}><div className="empty-state"><Icon.Reports /><p>No attendance records match your filters</p></div></td></tr>
+                  <tr><td colSpan={10}><div className="empty-state"><Icon.Reports /><p>No attendance records match your filters</p></div></td></tr>
                 ) : rows.map(row => (
                   <tr key={row.id}>
                     <td><strong>{row.name}</strong><span>{row.employee_code}</span></td>
@@ -1686,10 +2094,10 @@ function ReportsView({ token }) {
                       {row.check_out_method && <span className="badge badge-muted">{row.check_out_method}</span>}
                     </td>
                     <td>
-                      {row.check_out
-                        ? <span className="badge badge-success">Closed</span>
-                        : <span className="badge badge-warning">Open</span>}
+                      <span className={`badge ${row.status === "pending_review" ? "badge-warning" : row.status === "late" || row.status === "half_day" ? "badge-info" : row.status === "on_leave" ? "badge-muted" : "badge-success"}`}>{row.status || (row.check_out ? "closed" : "open")}</span>
                     </td>
+                    <td>{row.minutes_late ? `${row.minutes_late} min` : "â€”"}</td>
+                    <td>{row.work_minutes ? `${row.work_minutes} / ${row.overtime_minutes || 0} min` : "â€”"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1933,6 +2341,13 @@ export default function App() {
             token={token}
             employees={employees}
             onRefreshEmployees={refreshEmployees}
+          />
+        )}
+
+        {activeView === "workforce" && (
+          <WorkforceView
+            token={token}
+            employees={employees}
           />
         )}
 

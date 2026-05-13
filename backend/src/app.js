@@ -10,6 +10,7 @@ import authRoutes from "./routes/authRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import attendanceRoutes from "./routes/attendanceRoutes.js";
 import auditRoutes from "./routes/auditRoutes.js";
+import workforceRoutes from "./routes/workforceRoutes.js";
 
 const app = express();
 
@@ -29,6 +30,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/attendance", attendanceRoutes);
+app.use("/api/workforce", workforceRoutes);
 app.use("/api/biometrics", biometricRoutes);
 app.use("/api/audit-logs", auditRoutes);
 

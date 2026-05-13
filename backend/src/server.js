@@ -1,11 +1,12 @@
 import app from "./app.js";
-import { ensureAuditStorage, ensureBootstrapAdmin, ensureFingerprintStorage } from "./services/bootstrapService.js";
+import { ensureAttendanceDomainStorage, ensureAuditStorage, ensureBootstrapAdmin, ensureFingerprintStorage } from "./services/bootstrapService.js";
 
 const port = Number(process.env.PORT || 4000);
 
 async function start() {
   await ensureAuditStorage();
   await ensureFingerprintStorage();
+  await ensureAttendanceDomainStorage();
   await ensureBootstrapAdmin();
 
   app.listen(port, () => {
