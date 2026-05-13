@@ -14,6 +14,7 @@ namespace FingerprintEnrollUi
             var employeeId = 1;
             var fingerCode = "right_index";
             var backendUrl = "http://127.0.0.1:4000";
+            string stationKey = null;
 
             for (var i = 0; i < args.Length; i++)
             {
@@ -32,9 +33,14 @@ namespace FingerprintEnrollUi
                     backendUrl = args[i + 1];
                     i++;
                 }
+                else if (args[i] == "--station-key" && i + 1 < args.Length)
+                {
+                    stationKey = args[i + 1];
+                    i++;
+                }
             }
 
-            Application.Run(new MainForm(employeeId, fingerCode, backendUrl));
+            Application.Run(new MainForm(employeeId, fingerCode, backendUrl, stationKey));
         }
     }
 }

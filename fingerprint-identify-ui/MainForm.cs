@@ -22,13 +22,18 @@ namespace FingerprintIdentifyUi
         private readonly HttpClient _httpClient = new HttpClient();
         private List<FingerprintCandidate> _candidates = new List<FingerprintCandidate>();
         private bool _isProcessing;
+        private bool _isReloadingCandidates;
+        private bool _templatesReady;
+        private bool _autoCloseOnSuccess = true;
         private readonly string _backendUrl;
         private readonly int? _employeeId;
+        private readonly string _stationKey;
 
-        public MainForm(string backendUrl, int? employeeId)
+        public MainForm(string backendUrl, int? employeeId, string stationKey)
         {
             _backendUrl = string.IsNullOrWhiteSpace(backendUrl) ? "http://127.0.0.1:4000" : backendUrl.TrimEnd('/');
             _employeeId = employeeId;
+            _stationKey = stationKey;
             Text = "Fingerprint Attendance Verification";
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -49,7 +54,7 @@ namespace FingerprintIdentifyUi
             {
                 Left = 20,
                 Top = 18,
-                Active = true,
+                Active = false,
                 ReaderSerialNumber = "00000000-0000-0000-0000-000000000000"
             };
             _verificationControl.OnComplete += VerificationControl_OnComplete;
@@ -79,7 +84,7 @@ namespace FingerprintIdentifyUi
                 Width = 120,
                 Text = "Reload Templates"
             };
-            _reloadButton.Click += async (sender, args) => await LoadCandidatesAsync();
+            _reloadButton.Click += async (sender, args) => await LoadCandidatesAsync(forceStatusMessage: true);
 
             _closeButton = new Button
             {
@@ -97,27 +102,38 @@ namespace FingerprintIdentifyUi
             Controls.Add(_reloadButton);
             Controls.Add(_closeButton);
 
-            Load += async (sender, args) => await LoadCandidatesAsync();
             Shown += (sender, args) =>
             {
                 TopMost = true;
                 Activate();
                 BringToFront();
                 TopMost = false;
+                BeginInvoke(new Action(async () => await LoadCandidatesAsync(forceStatusMessage: true)));
             };
         }
 
-        private async Task LoadCandidatesAsync()
+        private async Task LoadCandidatesAsync(bool forceStatusMessage = false)
         {
+            if (_isReloadingCandidates)
+            {
+                return;
+            }
+
             try
             {
+                _isReloadingCandidates = true;
+                _templatesReady = false;
                 _reloadButton.Enabled = false;
-                _statusLabel.Text = "Loading enrolled fingerprints from backend...";
+                _verificationControl.Active = false;
+                if (forceStatusMessage || _candidates.Count == 0)
+                {
+                    _statusLabel.Text = "Loading enrolled fingerprints from backend...";
+                }
 
                 var exportUrl = _employeeId.HasValue
                     ? $"{_backendUrl}/api/biometrics/fingerprint/export-templates?employeeId={_employeeId.Value}"
                     : $"{_backendUrl}/api/biometrics/fingerprint/export-templates";
-                var response = await _httpClient.GetAsync(exportUrl);
+                var response = await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, exportUrl));
                 var content = await response.Content.ReadAsStringAsync();
 
                 if (!response.IsSuccessStatusCode)
@@ -150,6 +166,7 @@ namespace FingerprintIdentifyUi
                 }
 
                 _candidates = candidates;
+                _templatesReady = _candidates.Count > 0;
                 _statusLabel.Text = _employeeId.HasValue
                     ? $"Loaded {_candidates.Count} fingerprint template(s) for employee #{_employeeId.Value}."
                     : $"Loaded {_candidates.Count} enrolled fingerprint template(s).";
@@ -158,141 +175,188 @@ namespace FingerprintIdentifyUi
                         ? "Ready. Touch the selected employee's enrolled finger to confirm identity."
                         : "Ready. Touch the reader to verify attendance.")
                     : "No enrolled fingerprint templates are available yet.";
+
+                RestartVerificationCapture();
             }
             catch (Exception ex)
             {
+                _verificationControl.Active = false;
+                _templatesReady = false;
                 _statusLabel.Text = "Failed to load templates.";
                 _resultLabel.Text = ex.GetType().Name + ": " + ex.Message;
             }
             finally
             {
+                _isReloadingCandidates = false;
                 _reloadButton.Enabled = true;
             }
         }
 
         private void VerificationControl_OnComplete(object control, DPFP.FeatureSet featureSet, ref DPFP.Gui.EventHandlerStatus status)
         {
-            if (_isProcessing)
+            if (_isProcessing || _isReloadingCandidates)
             {
                 status = DPFP.Gui.EventHandlerStatus.Failure;
+                _statusLabel.Text = _isReloadingCandidates
+                    ? "Please wait while fingerprint templates finish loading."
+                    : _statusLabel.Text;
+                return;
+            }
+
+            if (!_templatesReady || _candidates.Count == 0)
+            {
+                status = DPFP.Gui.EventHandlerStatus.Failure;
+                _statusLabel.Text = "Templates are still loading. Please wait a moment and scan again.";
                 return;
             }
 
             _isProcessing = true;
+            _verificationControl.Active = false;
+            _statusLabel.Text = "Comparing scanned finger against enrolled templates...";
+            _resultLabel.Text = "Please wait while attendance is being verified...";
+            status = DPFP.Gui.EventHandlerStatus.Success;
 
-            try
+            Task.Run(() =>
             {
-                if (_candidates.Count == 0)
+                return VerifyFingerprint(featureSet);
+            })
+            .ContinueWith((task) =>
+            {
+                try
                 {
-                    status = DPFP.Gui.EventHandlerStatus.Failure;
-                    _resultLabel.Text = "No fingerprint templates are loaded.";
-                    return;
-                }
-
-                _statusLabel.Text = "Comparing scanned finger against enrolled templates...";
-
-                var verifier = new DPFP.Verification.Verification();
-                var matchedCandidates = new List<MatchedFingerprint>();
-
-                foreach (var candidate in _candidates)
-                {
-                    if (candidate.Template == null)
+                    if (task.IsFaulted)
                     {
-                        continue;
+                        _statusLabel.Text = "Verification failed.";
+                        _resultLabel.Text = task.Exception?.GetBaseException().Message ?? "Unexpected verification error.";
+                        return;
                     }
 
-                    var result = new DPFP.Verification.Verification.Result();
-                    verifier.Verify(featureSet, candidate.Template, ref result);
+                    ApplyVerificationOutcome(task.Result);
+                }
+                finally
+                {
+                    _isProcessing = false;
+                }
+            }, TaskScheduler.FromCurrentSynchronizationContext());
+        }
 
-                    if (result.Verified)
-                    {
-                        matchedCandidates.Add(new MatchedFingerprint
-                        {
-                            Candidate = candidate,
-                            Score = result.FARAchieved
-                        });
-                    }
+        private VerificationOutcome VerifyFingerprint(DPFP.FeatureSet featureSet)
+        {
+            if (_candidates.Count == 0)
+            {
+                return VerificationOutcome.CreateFailure("No fingerprint templates are loaded.", "Reload templates and try again.");
+            }
+
+            var verifier = new DPFP.Verification.Verification();
+            var matchedCandidates = new List<MatchedFingerprint>();
+
+            foreach (var candidate in _candidates)
+            {
+                if (candidate.Template == null)
+                {
+                    continue;
                 }
 
-                if (matchedCandidates.Count == 0)
+                var result = new DPFP.Verification.Verification.Result();
+                verifier.Verify(featureSet, candidate.Template, ref result);
+
+                if (result.Verified)
                 {
-                    status = DPFP.Gui.EventHandlerStatus.Failure;
-                    _statusLabel.Text = "No fingerprint match.";
-                    _resultLabel.Text = _employeeId.HasValue
+                    matchedCandidates.Add(new MatchedFingerprint
+                    {
+                        Candidate = candidate,
+                        Score = result.FARAchieved
+                    });
+                }
+            }
+
+            if (matchedCandidates.Count == 0)
+            {
+                return VerificationOutcome.CreateFailure(
+                    "No fingerprint match.",
+                    _employeeId.HasValue
                         ? $"This finger does not match employee #{_employeeId.Value}."
-                        : "This finger does not match any enrolled employee.";
-                    return;
-                }
-
-                var distinctEmployeeIds = matchedCandidates
-                    .Select((match) => match.Candidate.EmployeeId)
-                    .Distinct()
-                    .ToList();
-
-                if (!_employeeId.HasValue && distinctEmployeeIds.Count > 1)
-                {
-                    status = DPFP.Gui.EventHandlerStatus.Failure;
-                    _statusLabel.Text = "Fingerprint ownership conflict detected.";
-                    _resultLabel.Text = "This fingerprint matches multiple employees. Attendance was not marked.";
-                    ReportConflict(matchedCandidates);
-                    MessageBox.Show(
-                        "This fingerprint matches multiple employees. Attendance has been blocked until the conflicting enrollments are resolved.",
-                        "Fingerprint Conflict",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning);
-                    return;
-                }
-
-                var matchedCandidate = matchedCandidates
-                    .OrderByDescending((match) => match.Candidate.IsPreferred)
-                    .ThenBy((match) => match.Score)
-                    .First();
-
-                var markPayload = new
-                {
-                    employeeId = matchedCandidate.Candidate.EmployeeId,
-                    score = matchedCandidate.Score
-                };
-
-                var body = new StringContent(
-                    _json.Serialize(markPayload),
-                    Encoding.UTF8,
-                    "application/json");
-
-                var response = _httpClient.PostAsync(
-                    $"{_backendUrl}/api/biometrics/fingerprint/mark-attendance",
-                    body).GetAwaiter().GetResult();
-
-                var responseText = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    status = DPFP.Gui.EventHandlerStatus.Failure;
-                    _statusLabel.Text = "Fingerprint matched, but attendance could not be marked.";
-                    _resultLabel.Text = responseText;
-                    return;
-                }
-
-                var attendanceResponse = _json.Deserialize<MarkAttendanceResponse>(responseText);
-                status = DPFP.Gui.EventHandlerStatus.Success;
-                _statusLabel.Text = $"Matched: {matchedCandidate.Candidate.Name} ({matchedCandidate.Candidate.Cnic})";
-                _resultLabel.Text = BuildAttendanceMessage(matchedCandidate.Candidate, attendanceResponse?.Attendance);
-                MessageBox.Show(
-                    BuildDialogMessage(matchedCandidate.Candidate, attendanceResponse?.Attendance),
-                    "Fingerprint Attendance",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
+                        : "This finger does not match any enrolled employee.");
             }
-            catch (Exception ex)
+
+            var distinctEmployeeIds = matchedCandidates
+                .Select((match) => match.Candidate.EmployeeId)
+                .Distinct()
+                .ToList();
+
+            if (!_employeeId.HasValue && distinctEmployeeIds.Count > 1)
             {
-                status = DPFP.Gui.EventHandlerStatus.Failure;
-                _statusLabel.Text = "Verification failed.";
-                _resultLabel.Text = ex.GetType().Name + ": " + ex.Message;
+                ReportConflict(matchedCandidates);
+                return VerificationOutcome.CreateFailure(
+                    "Fingerprint ownership conflict detected.",
+                    "This fingerprint matches multiple employees. Attendance was not marked.");
             }
-            finally
+
+            var matchedCandidate = matchedCandidates
+                .OrderByDescending((match) => match.Candidate.IsPreferred)
+                .ThenBy((match) => match.Score)
+                .First();
+
+            var markPayload = new
             {
-                _isProcessing = false;
+                employeeId = matchedCandidate.Candidate.EmployeeId,
+                score = matchedCandidate.Score
+            };
+
+            var body = new StringContent(
+                _json.Serialize(markPayload),
+                Encoding.UTF8,
+                "application/json");
+
+            var response = SendAsync(() => new HttpRequestMessage(HttpMethod.Post, $"{_backendUrl}/api/biometrics/fingerprint/mark-attendance")
+            {
+                Content = body
+            }).GetAwaiter().GetResult();
+
+            var responseText = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return VerificationOutcome.CreateFailure(
+                    "Fingerprint matched, but attendance could not be marked.",
+                    responseText);
             }
+
+            var attendanceResponse = _json.Deserialize<MarkAttendanceResponse>(responseText);
+            return VerificationOutcome.CreateSuccess(
+                $"Matched: {matchedCandidate.Candidate.Name} ({matchedCandidate.Candidate.Cnic})",
+                BuildAttendanceMessage(matchedCandidate.Candidate, attendanceResponse?.Attendance),
+                BuildDialogMessage(matchedCandidate.Candidate, attendanceResponse?.Attendance),
+                attendanceResponse?.Attendance?.Action == "already_closed");
+        }
+
+        private void ApplyVerificationOutcome(VerificationOutcome outcome)
+        {
+            _statusLabel.Text = outcome.StatusMessage;
+            _resultLabel.Text = outcome.ResultMessage;
+
+            if (outcome.Success)
+            {
+                System.Media.SystemSounds.Asterisk.Play();
+                if (_autoCloseOnSuccess && !outcome.KeepWindowOpen)
+                {
+                    BeginInvoke(new Action(async () =>
+                    {
+                        await Task.Delay(1200);
+                        if (!IsDisposed)
+                        {
+                            Close();
+                        }
+                    }));
+                    return;
+                }
+            }
+            else
+            {
+                System.Media.SystemSounds.Exclamation.Play();
+            }
+
+            RestartVerificationCapture();
         }
 
         private void ReportConflict(List<MatchedFingerprint> matches)
@@ -318,12 +382,41 @@ namespace FingerprintIdentifyUi
                 };
 
                 var body = new StringContent(_json.Serialize(payload), Encoding.UTF8, "application/json");
-                _httpClient.PostAsync($"{_backendUrl}/api/biometrics/fingerprint/report-conflict", body)
+                SendAsync(() => new HttpRequestMessage(HttpMethod.Post, $"{_backendUrl}/api/biometrics/fingerprint/report-conflict")
+                {
+                    Content = body
+                })
                     .GetAwaiter()
                     .GetResult();
             }
             catch
             {
+            }
+        }
+
+        private async Task<HttpResponseMessage> SendAsync(Func<HttpRequestMessage> requestFactory)
+        {
+            var request = requestFactory();
+            if (!string.IsNullOrWhiteSpace(_stationKey))
+            {
+                request.Headers.TryAddWithoutValidation("X-Station-Key", _stationKey);
+            }
+
+            return await _httpClient.SendAsync(request);
+        }
+
+        private void RestartVerificationCapture()
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke((Action)RestartVerificationCapture);
+                return;
+            }
+
+            _verificationControl.Active = false;
+            if (_templatesReady)
+            {
+                _verificationControl.Active = true;
             }
         }
 
@@ -400,5 +493,38 @@ namespace FingerprintIdentifyUi
     {
         public string Action { get; set; }
         public int AttendanceId { get; set; }
+    }
+
+    public sealed class VerificationOutcome
+    {
+        public bool Success { get; set; }
+        public string StatusMessage { get; set; }
+        public string ResultMessage { get; set; }
+        public string DialogMessage { get; set; }
+        public bool KeepWindowOpen { get; set; }
+
+        public static VerificationOutcome CreateSuccess(string statusMessage, string resultMessage, string dialogMessage, bool keepWindowOpen)
+        {
+            return new VerificationOutcome
+            {
+                Success = true,
+                StatusMessage = statusMessage,
+                ResultMessage = resultMessage,
+                DialogMessage = dialogMessage,
+                KeepWindowOpen = keepWindowOpen
+            };
+        }
+
+        public static VerificationOutcome CreateFailure(string statusMessage, string resultMessage)
+        {
+            return new VerificationOutcome
+            {
+                Success = false,
+                StatusMessage = statusMessage,
+                ResultMessage = resultMessage,
+                DialogMessage = resultMessage,
+                KeepWindowOpen = true
+            };
+        }
     }
 }

@@ -12,6 +12,7 @@ namespace FingerprintIdentifyUi
             Application.SetCompatibleTextRenderingDefault(false);
 
             var backendUrl = "http://127.0.0.1:4000";
+            string stationKey = null;
             int? employeeId = null;
 
             for (var i = 0; i < args.Length; i++)
@@ -26,9 +27,14 @@ namespace FingerprintIdentifyUi
                     employeeId = parsedEmployeeId;
                     i++;
                 }
+                else if (args[i] == "--station-key" && i + 1 < args.Length)
+                {
+                    stationKey = args[i + 1];
+                    i++;
+                }
             }
 
-            Application.Run(new MainForm(backendUrl, employeeId));
+            Application.Run(new MainForm(backendUrl, employeeId, stationKey));
         }
     }
 }

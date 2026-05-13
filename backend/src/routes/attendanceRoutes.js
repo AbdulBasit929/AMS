@@ -1,6 +1,6 @@
 import { Router } from "express";
 import pool from "../config/db.js";
-import { requireAuth } from "../middleware/authMiddleware.js";
+import { requireAuth, requireRole } from "../middleware/authMiddleware.js";
 import { markAttendance } from "../services/attendanceService.js";
 
 const router = Router();
@@ -176,7 +176,7 @@ router.get("/export.csv", requireAuth, async (req, res) => {
   res.send(csvRows.join("\n"));
 });
 
-router.post("/manual-mark", requireAuth, async (req, res) => {
+router.post("/manual-mark", requireAuth, requireRole("admin", "operator"), async (req, res) => {
   const { employeeId } = req.body;
 
   if (!employeeId) {

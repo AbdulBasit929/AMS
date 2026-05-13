@@ -1,6 +1,6 @@
 import { Router } from "express";
 import pool from "../config/db.js";
-import { requireAuth, requireRole } from "../middleware/authMiddleware.js";
+import { requireAuth, requireRole, requireTrustedStation } from "../middleware/authMiddleware.js";
 import { markAttendance } from "../services/attendanceService.js";
 import { clearAuditEvents, logAudit } from "../services/auditService.js";
 import { findDuplicateFaceEnrollment, listPotentialFaceConflicts } from "../services/faceProfileService.js";
@@ -133,7 +133,7 @@ router.post("/fingerprint/conflicts/resolve", requireAuth, requireRole("admin", 
   }
 });
 
-router.post("/fingerprint/launch-enroll", async (req, res) => {
+router.post("/fingerprint/launch-enroll", requireAuth, requireRole("admin", "operator"), async (req, res) => {
   const { employeeId, fingerCode = "right_index" } = req.body;
 
   if (!employeeId) {
@@ -147,7 +147,8 @@ router.post("/fingerprint/launch-enroll", async (req, res) => {
       body: JSON.stringify({
         employeeId,
         fingerCode,
-        backendUrl: process.env.PUBLIC_BACKEND_URL || "http://127.0.0.1:4000"
+        backendUrl: process.env.PUBLIC_BACKEND_URL || "http://127.0.0.1:4000",
+        stationKey: process.env.BIOMETRIC_SHARED_KEY || null
       })
     });
 
@@ -158,7 +159,7 @@ router.post("/fingerprint/launch-enroll", async (req, res) => {
   }
 });
 
-router.post("/fingerprint/launch-verify", async (req, res) => {
+router.post("/fingerprint/launch-verify", requireAuth, requireRole("admin", "operator"), async (req, res) => {
   const { employeeId = null } = req.body || {};
   try {
     if (!employeeId) {
@@ -177,7 +178,8 @@ router.post("/fingerprint/launch-verify", async (req, res) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         backendUrl: process.env.PUBLIC_BACKEND_URL || "http://127.0.0.1:4000",
-        employeeId
+        employeeId,
+        stationKey: process.env.BIOMETRIC_SHARED_KEY || null
       })
     });
 
@@ -188,7 +190,7 @@ router.post("/fingerprint/launch-verify", async (req, res) => {
   }
 });
 
-router.post("/fingerprint/report-conflict", async (req, res) => {
+router.post("/fingerprint/report-conflict", requireTrustedStation, async (req, res) => {
   const {
     employeeId = null,
     fingerCode = null,
@@ -313,7 +315,7 @@ router.post("/face/conflicts/resolve", requireAuth, requireRole("admin", "operat
   }
 });
 
-router.post("/fingerprint/enroll", async (req, res) => {
+router.post("/fingerprint/enroll", requireTrustedStation, async (req, res) => {
   const { employeeId, cnic, fingerCode = "right_index" } = req.body;
 
   if (!employeeId && !cnic) {
@@ -374,7 +376,7 @@ router.post("/fingerprint/enroll", async (req, res) => {
   }
 });
 
-router.post("/fingerprint/import-template", async (req, res) => {
+router.post("/fingerprint/import-template", requireTrustedStation, async (req, res) => {
   const {
     employeeId,
     cnic,
@@ -443,7 +445,7 @@ router.post("/fingerprint/import-template", async (req, res) => {
   }
 });
 
-router.post("/fingerprint/export-template", async (req, res) => {
+router.post("/fingerprint/export-template", requireTrustedStation, async (req, res) => {
   const { employeeId, cnic, fingerCode } = req.body;
 
   if (!employeeId && !cnic) {
@@ -503,7 +505,7 @@ router.post("/fingerprint/export-template", async (req, res) => {
   }
 });
 
-router.get("/fingerprint/export-templates", async (req, res) => {
+router.get("/fingerprint/export-templates", requireTrustedStation, async (req, res) => {
   try {
     const employeeId = req.query.employeeId ? Number(req.query.employeeId) : null;
     const excludeEmployeeId = req.query.excludeEmployeeId ? Number(req.query.excludeEmployeeId) : null;
@@ -574,7 +576,7 @@ router.get("/fingerprint/export-templates", async (req, res) => {
   }
 });
 
-router.post("/fingerprint/mark-attendance", async (req, res) => {
+router.post("/fingerprint/mark-attendance", requireTrustedStation, async (req, res) => {
   const { employeeId, cnic, score } = req.body;
 
   if (!employeeId && !cnic) {
@@ -616,7 +618,7 @@ router.post("/fingerprint/mark-attendance", async (req, res) => {
   }
 });
 
-router.post("/face/enroll", async (req, res) => {
+router.post("/face/enroll", requireAuth, requireRole("admin", "operator"), async (req, res) => {
   const { employeeId, imageBase64, samples = [], profileImage = null } = req.body;
 
   if (!employeeId || (!imageBase64 && (!Array.isArray(samples) || samples.length === 0))) {
@@ -709,7 +711,7 @@ router.post("/face/enroll", async (req, res) => {
   }
 });
 
-router.post("/face/analyze", async (req, res) => {
+router.post("/face/analyze", requireAuth, async (req, res) => {
   const { imageBase64 } = req.body || {};
 
   if (!imageBase64) {
@@ -730,7 +732,7 @@ router.post("/face/analyze", async (req, res) => {
   }
 });
 
-router.post("/face/verify", async (req, res) => {
+router.post("/face/verify", requireAuth, async (req, res) => {
   const { imageBase64, samples = [] } = req.body || {};
 
   if (!imageBase64 && (!Array.isArray(samples) || samples.length === 0)) {
@@ -741,7 +743,8 @@ router.post("/face/verify", async (req, res) => {
     const [employees] = await pool.query(
       `SELECT id, name, cnic, face_encoding
        FROM employees
-       WHERE face_encoding IS NOT NULL`
+       WHERE face_encoding IS NOT NULL
+         AND status = 'active'`
     );
 
     if (employees.length === 0) {
@@ -817,7 +820,7 @@ router.post("/face/verify", async (req, res) => {
   }
 });
 
-router.post("/fingerprint/identify", async (_req, res) => {
+router.post("/fingerprint/identify", requireTrustedStation, async (_req, res) => {
   try {
     const [fingerprints] = await pool.query(
       `SELECT

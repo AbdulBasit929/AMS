@@ -1,57 +1,76 @@
+# =========================
 # Node
+# =========================
 node_modules/
 dist/
 build/
 
+# =========================
 # Environment files
+# =========================
 .env
 .env.*
 
+# =========================
 # Python
+# =========================
 .venv/
 venv/
+.venv312/
 __pycache__/
 *.pyc
-
-# Logs
-*.log
-
-# Coverage
-coverage/
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# IDE
-.vscode/
-.idea/
-
-# Docker
-*.pid
-
-# Database
-*.sqlite3
-
-# Misc
-*.class
-*.jar
 
 # Python runtime/cache
 .pydeps312/
 .pydeps312-packages/
 .tmp-py312/
 _runtime/
-.venv/
-.venv312/
 
-# Python cache
-__pycache__/
-*.pyc
-
-# .NET build
+# =========================
+# .NET build artifacts
+# =========================
 bin/
 obj/
+*.dll
+*.exe
+*.pdb
 
+# =========================
 # Logs
+# =========================
 *.log
+*.pid
+
+# =========================
+# Coverage
+# =========================
+coverage/
+
+# =========================
+# Database
+# =========================
+*.sqlite3
+
+# =========================
+# Java
+# =========================
+*.class
+*.jar
+
+# =========================
+# Temp folders
+# =========================
+temp/
+_tmp_compile/
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# IDE
+# =========================
+.vscode/
+.idea/

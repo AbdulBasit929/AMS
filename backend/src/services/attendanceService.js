@@ -14,20 +14,34 @@ export async function markAttendance({
   try {
     await connection.beginTransaction();
 
+    const [[employee]] = await connection.query(
+      `SELECT id
+       FROM employees
+       WHERE id = ?
+       LIMIT 1
+       FOR UPDATE`,
+      [employeeId]
+    );
+
+    if (!employee) {
+      throw new Error("employee not found");
+    }
+
     const [rows] = await connection.query(
       `SELECT id, check_in, check_out
        FROM attendance
        WHERE employee_id = ? AND date = CURDATE()
-       LIMIT 1`,
+       LIMIT 1
+       FOR UPDATE`,
       [employeeId]
     );
 
     if (rows.length === 0) {
       const [result] = await connection.query(
         `INSERT INTO attendance
-          (employee_id, date, check_in, check_in_method, check_in_device, verification_score, method)
-         VALUES (?, CURDATE(), NOW(), ?, ?, ?, ?)`,
-        [employeeId, method, stationName, score, method === "manual" ? "face" : method]
+          (employee_id, date, check_in, check_in_method, check_in_device, verification_score)
+         VALUES (?, CURDATE(), NOW(), ?, ?, ?)`,
+        [employeeId, method, stationName, score]
       );
 
       await connection.commit();

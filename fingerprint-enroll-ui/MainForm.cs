@@ -20,10 +20,12 @@ namespace FingerprintEnrollUi
         private readonly HttpClient _httpClient = new HttpClient();
         private readonly JavaScriptSerializer _json = new JavaScriptSerializer();
         private readonly string _backendUrl;
+        private readonly string _stationKey;
 
-        public MainForm(int initialEmployeeId, string initialFingerCode, string backendUrl)
+        public MainForm(int initialEmployeeId, string initialFingerCode, string backendUrl, string stationKey)
         {
             _backendUrl = string.IsNullOrWhiteSpace(backendUrl) ? "http://127.0.0.1:4000" : backendUrl.TrimEnd('/');
+            _stationKey = stationKey;
             Text = "Fingerprint Enrollment";
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -209,10 +211,10 @@ namespace FingerprintEnrollUi
                     return;
                 }
 
-                var response = _httpClient.PostAsync(
-                    $"{_backendUrl}/api/biometrics/fingerprint/import-template",
-                    new StringContent(_json.Serialize(payload), Encoding.UTF8, "application/json")
-                ).GetAwaiter().GetResult();
+                var response = SendAsync(() => new HttpRequestMessage(HttpMethod.Post, $"{_backendUrl}/api/biometrics/fingerprint/import-template")
+                {
+                    Content = new StringContent(_json.Serialize(payload), Encoding.UTF8, "application/json")
+                }).GetAwaiter().GetResult();
 
                 var responseText = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
 
@@ -252,8 +254,9 @@ namespace FingerprintEnrollUi
 
         private FingerprintCandidate RunOwnershipCheck(int employeeId, string fingerCode)
         {
-            var response = _httpClient.GetAsync(
-                $"{_backendUrl}/api/biometrics/fingerprint/export-templates?excludeEmployeeId={employeeId}&excludeFingerCode={fingerCode}")
+            var response = SendAsync(() => new HttpRequestMessage(
+                    HttpMethod.Get,
+                    $"{_backendUrl}/api/biometrics/fingerprint/export-templates?excludeEmployeeId={employeeId}&excludeFingerCode={fingerCode}"))
                 .GetAwaiter()
                 .GetResult();
 
@@ -304,14 +307,25 @@ namespace FingerprintEnrollUi
                     }
                 };
 
-                _httpClient.PostAsync(
-                    $"{_backendUrl}/api/biometrics/fingerprint/report-conflict",
-                    new StringContent(_json.Serialize(payload), Encoding.UTF8, "application/json")
-                ).GetAwaiter().GetResult();
+                SendAsync(() => new HttpRequestMessage(HttpMethod.Post, $"{_backendUrl}/api/biometrics/fingerprint/report-conflict")
+                {
+                    Content = new StringContent(_json.Serialize(payload), Encoding.UTF8, "application/json")
+                }).GetAwaiter().GetResult();
             }
             catch
             {
             }
+        }
+
+        private async System.Threading.Tasks.Task<HttpResponseMessage> SendAsync(Func<HttpRequestMessage> requestFactory)
+        {
+            var request = requestFactory();
+            if (!string.IsNullOrWhiteSpace(_stationKey))
+            {
+                request.Headers.TryAddWithoutValidation("X-Station-Key", _stationKey);
+            }
+
+            return await _httpClient.SendAsync(request);
         }
 
         private void AddEvent(string message)

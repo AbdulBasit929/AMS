@@ -130,6 +130,10 @@ async Task HandleClientAsync(TcpClient client)
                 }
 
                 var args = $"--employee-id {payload.EmployeeId} --finger-code {payload.FingerCode ?? "right_index"} --backend-url {payload.BackendUrl ?? "http://127.0.0.1:4000"}";
+                if (!string.IsNullOrWhiteSpace(payload.StationKey))
+                {
+                    args += $" --station-key {payload.StationKey}";
+                }
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = exePath,
@@ -168,20 +172,20 @@ async Task HandleClientAsync(TcpClient client)
                 var running = Process.GetProcessesByName("FingerprintIdentifyUi");
                 if (running.Length > 0)
                 {
-                    FocusProcessWindow(running[0]);
-                    await WriteResponseAsync(stream, 200, new
+                    foreach (var process in running)
                     {
-                        status = "focused",
-                        message = "Fingerprint verification UI is already running and has been brought to the front.",
-                        processIds = running.Select(p => p.Id).ToArray()
-                    });
-                    return;
+                        TryCloseProcess(process, 4000);
+                    }
                 }
 
                 var args = $"--backend-url {payload.BackendUrl ?? "http://127.0.0.1:4000"}";
                 if (payload.EmployeeId.HasValue && payload.EmployeeId.Value > 0)
                 {
                     args += $" --employee-id {payload.EmployeeId.Value}";
+                }
+                if (!string.IsNullOrWhiteSpace(payload.StationKey))
+                {
+                    args += $" --station-key {payload.StationKey}";
                 }
                 Process.Start(new ProcessStartInfo
                 {
@@ -288,17 +292,50 @@ static void FocusProcessWindow(Process process)
     }
 }
 
+static void TryCloseProcess(Process process, int timeoutMs)
+{
+    try
+    {
+        process.Refresh();
+        if (process.HasExited)
+        {
+            return;
+        }
+
+        if (process.MainWindowHandle != IntPtr.Zero)
+        {
+            process.CloseMainWindow();
+            if (process.WaitForExit(timeoutMs))
+            {
+                return;
+            }
+        }
+
+        if (!process.HasExited)
+        {
+            process.Kill();
+            process.WaitForExit(timeoutMs);
+        }
+    }
+    catch
+    {
+        // Ignore shutdown failures; a fresh process launch attempt will surface issues if needed.
+    }
+}
+
 sealed class EnrollRequest
 {
     public int EmployeeId { get; set; }
     public string? FingerCode { get; set; }
     public string? BackendUrl { get; set; }
+    public string? StationKey { get; set; }
 }
 
 sealed class VerifyRequest
 {
     public string? BackendUrl { get; set; }
     public int? EmployeeId { get; set; }
+    public string? StationKey { get; set; }
 }
 
 static class NativeMethods
