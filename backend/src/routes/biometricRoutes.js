@@ -12,16 +12,31 @@ const agentBaseUrl = process.env.BIOMETRIC_AGENT_URL || "http://127.0.0.1:8091";
 
 router.get("/fingerprint/status", async (_req, res) => {
   try {
-    const response = await fetch(`${agentBaseUrl}/health`);
-    const data = await response.json();
+    const [agentResponse, bridgeResponse] = await Promise.all([
+      fetch(`${agentBaseUrl}/health`),
+      fetch(`${bridgeBaseUrl}/health`)
+    ]);
+    const agentData = await agentResponse.json();
+    const bridgeData = await bridgeResponse.json();
     const exactDuplicates = await listPotentialFingerprintConflicts();
-    res.status(response.status).json({
-      ...data,
+    const bridgeReady = bridgeResponse.ok && bridgeData?.status === "ok";
+    const status =
+      !agentResponse.ok ? "warning" :
+      !bridgeReady ? "warning" :
+      "ok";
+
+    res.status(agentResponse.status).json({
+      ...agentData,
+      status,
+      bridgeReady,
+      bridgeMessage: bridgeData?.message || null,
       conflictCount: exactDuplicates.length,
       message:
         exactDuplicates.length > 0
           ? "Local biometric agent is ready, but fingerprint ownership conflicts require remediation before broad station use."
-          : data.message
+          : bridgeReady
+            ? "Local biometric agent and fingerprint bridge are ready."
+            : "Biometric agent is ready, but the fingerprint bridge is offline."
     });
   } catch (error) {
     res.json({

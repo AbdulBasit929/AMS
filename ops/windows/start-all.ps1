@@ -8,6 +8,11 @@ if (-not (Test-Path $runtimeDir)) {
   New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
 }
 
+$staleProcessNames = @("FingerprintBridge", "FingerprintIdentifyUi", "FingerprintEnrollUi")
+foreach ($processName in $staleProcessNames) {
+  Get-Process -Name $processName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
 $components = @(
   @{
     Name = "backend"

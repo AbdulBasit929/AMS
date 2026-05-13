@@ -116,18 +116,7 @@ async Task HandleClientAsync(TcpClient client)
                     return;
                 }
 
-                var running = Process.GetProcessesByName("FingerprintEnrollUi");
-                if (running.Length > 0)
-                {
-                    FocusProcessWindow(running[0]);
-                    await WriteResponseAsync(stream, 200, new
-                    {
-                        status = "focused",
-                        message = "Fingerprint enrollment UI is already running and has been brought to the front.",
-                        processIds = running.Select(p => p.Id).ToArray()
-                    });
-                    return;
-                }
+                CloseFingerprintHelperProcesses(4000);
 
                 var args = $"--employee-id {payload.EmployeeId} --finger-code {payload.FingerCode ?? "right_index"} --backend-url {payload.BackendUrl ?? "http://127.0.0.1:4000"}";
                 if (!string.IsNullOrWhiteSpace(payload.StationKey))
@@ -169,14 +158,7 @@ async Task HandleClientAsync(TcpClient client)
                     return;
                 }
 
-                var running = Process.GetProcessesByName("FingerprintIdentifyUi");
-                if (running.Length > 0)
-                {
-                    foreach (var process in running)
-                    {
-                        TryCloseProcess(process, 4000);
-                    }
-                }
+                CloseFingerprintHelperProcesses(4000);
 
                 var args = $"--backend-url {payload.BackendUrl ?? "http://127.0.0.1:4000"}";
                 if (payload.EmployeeId.HasValue && payload.EmployeeId.Value > 0)
@@ -269,6 +251,18 @@ static void FocusFirstProcessByName(string processName)
     if (process != null)
     {
         FocusProcessWindow(process);
+    }
+}
+
+static void CloseFingerprintHelperProcesses(int timeoutMs)
+{
+    var names = new[] { "FingerprintIdentifyUi", "FingerprintEnrollUi" };
+    foreach (var name in names)
+    {
+        foreach (var process in Process.GetProcessesByName(name))
+        {
+            TryCloseProcess(process, timeoutMs);
+        }
     }
 }
 
