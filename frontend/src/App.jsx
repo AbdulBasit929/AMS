@@ -204,6 +204,68 @@ function captureVideoFrame(video) {
   return canvas.toDataURL("image/jpeg", 0.92);
 }
 
+function captureVideoFrameScaled(video, maxWidth = 960, quality = 0.88) {
+  if (!video) return null;
+  const sourceWidth = video.videoWidth || 1280;
+  const sourceHeight = video.videoHeight || 720;
+  const scale = sourceWidth > maxWidth ? maxWidth / sourceWidth : 1;
+  const width = Math.max(640, Math.round(sourceWidth * scale));
+  const height = Math.max(480, Math.round(sourceHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext("2d").drawImage(video, 0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function fmtMetric(value, digits = 1) {
+  return typeof value === "number" ? value.toFixed(digits) : "-";
+}
+
+function FaceQualityPanel({ analysis, compact = false }) {
+  if (!analysis) return null;
+
+  const quality = analysis.quality || analysis.qualitySummary || {};
+  const warnings = analysis.warnings || [];
+  const blur = quality.blurVariance ?? quality.averageBlurVariance ?? null;
+  const brightness = quality.brightness ?? quality.averageBrightness ?? null;
+  const coverage = analysis.faceCoverage ?? quality.averageFaceCoverage ?? null;
+
+  let tone = "info";
+  if (typeof blur === "number" && typeof brightness === "number") {
+    if (blur >= 20 && brightness >= 55 && brightness <= 200) {
+      tone = "success";
+    } else if (blur < 10 || brightness < 45 || brightness > 210) {
+      tone = "danger";
+    } else {
+      tone = "warning";
+    }
+  }
+
+  return (
+    <div className={`banner banner-${tone}`} style={{ alignItems: "flex-start", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", width: "100%" }}>
+        <span><strong>Sharpness:</strong> {fmtMetric(blur)}</span>
+        <span><strong>Brightness:</strong> {fmtMetric(brightness)}</span>
+        {coverage !== null && <span><strong>Coverage:</strong> {Math.round(Number(coverage) * 100)}%</span>}
+      </div>
+      {!compact && warnings.length > 0 && (
+        <div style={{ fontSize: 12 }}>{warnings.join(" ")}</div>
+      )}
+      {!compact && analysis.message && (
+        <div style={{ fontSize: 12 }}>{analysis.message}</div>
+      )}
+    </div>
+  );
+}
+
+const FACE_ENROLL_MIN_SAMPLES = 3;
+const FACE_ENROLL_MAX_SAMPLES = 4;
+
 /* ─── BANNER ──────────────────────────────────────────────────────────────── */
 function Banner({ type = "info", children, onClose }) {
   const icons = { info: Icon.Info, success: Icon.CheckCircle, warning: Icon.AlertTriangle, danger: Icon.AlertTriangle };
@@ -581,7 +643,10 @@ function StationView({ token, stationStatus, latestEvent, conflictCount, station
   const [videoDevices, setVideoDevices] = useState([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
   const [faceSamples, setFaceSamples] = useState([]);
+  const [faceCaptureAnalyzing, setFaceCaptureAnalyzing] = useState(false);
+  const [lastFaceAnalysis, setLastFaceAnalysis] = useState(null);
   const [faceLoading, setFaceLoading] = useState(false);
+  const [liveFaceAnalysis, setLiveFaceAnalysis] = useState(null);
 
   const syncDevices = useCallback(async () => {
     const devices = await loadVideoInputs();
@@ -608,24 +673,91 @@ function StationView({ token, stationStatus, latestEvent, conflictCount, station
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
     setCamActive(false);
+    setLiveFaceAnalysis(null);
   }
 
   function captureFrame() {
     return captureVideoFrame(videoRef.current);
   }
 
+  async function captureVerificationBurst() {
+    const frames = [];
+
+    for (let i = 0; i < 4; i++) {
+      const frame = captureVideoFrameScaled(videoRef.current, 960, 0.88);
+      if (frame) {
+        frames.push(frame);
+      }
+      if (i < 3) {
+        await sleep(220);
+      }
+    }
+
+    return frames;
+  }
+
+  async function analyzeCurrentFrame(silent = false) {
+    const frame = captureVideoFrameScaled(videoRef.current, 960, 0.86);
+    if (!frame) {
+      return null;
+    }
+
+    const res = await api("/api/biometrics/face/analyze", {
+      method: "POST",
+      body: JSON.stringify({ imageBase64: frame })
+    }, token);
+
+    if (res.ok) {
+      setLiveFaceAnalysis(res.data);
+      return res.data;
+    }
+
+    const fallback = {
+      quality: res.data?.quality || null,
+      warnings: [],
+      message: res.data?.message || "Live quality check failed."
+    };
+    setLiveFaceAnalysis(fallback);
+    if (!silent) {
+      setFaceMsg(fallback.message);
+    }
+    return null;
+  }
+
   async function verifyFace() {
-    const img = captureFrame();
-    if (!img) { setFaceMsg("Start the camera first."); return; }
-    setFaceLoading(true); setFaceMsg("");
-    const res = await api("/api/biometrics/face/verify", { method: "POST", body: JSON.stringify({ imageBase64: img }) }, token);
+    if (!camActive) { setFaceMsg("Start the camera first."); return; }
+    setFaceLoading(true); setFaceMsg("Checking live camera quality...");
+    await analyzeCurrentFrame(true);
+    setFaceMsg("Capturing verification burst...");
+    const samples = await captureVerificationBurst();
+    if (samples.length === 0) {
+      setFaceLoading(false);
+      setFaceMsg("Could not capture a face frame from the camera.");
+      return;
+    }
+
+    setFaceMsg("Analyzing verification frames...");
+    const res = await api("/api/biometrics/face/verify", { method: "POST", body: JSON.stringify({ samples }) }, token);
     setFaceLoading(false);
     if (res.ok) {
+      const rejected = res.data.rejectedSamples?.length || 0;
       setFaceMsg(
-        `Matched ${res.data.employee?.name || "employee"} with confidence ${Math.round((res.data.confidence || 0) * 100)}%. Attendance action: ${res.data.attendance?.action || "recorded"}.`
+        `Matched ${res.data.employee?.name || "employee"} with confidence ${Math.round((res.data.confidence || 0) * 100)}% using ${res.data.probeCount || samples.length} verification frame(s)${rejected ? ` and ${rejected} rejected frame(s)` : ""}. Attendance action: ${res.data.attendance?.action || "recorded"}.`
       );
     } else {
-      setFaceMsg(res.data.message || res.data.status || "Face verification complete.");
+      const confidenceText = typeof res.data.confidence === "number"
+        ? ` Confidence: ${Math.round(res.data.confidence * 100)}%.`
+        : "";
+      const thresholdText = typeof res.data.appliedThreshold === "number"
+        ? ` Threshold: ${res.data.appliedThreshold.toFixed(2)}.`
+        : "";
+      const topCandidateText = Array.isArray(res.data.topCandidates) && res.data.topCandidates.length > 0
+        ? ` Closest scores: ${res.data.topCandidates.map((candidate) => `${candidate.name || `#${candidate.employeeId}`} ${candidate.score}`).join(" | ")}.`
+        : "";
+      const rejectedText = Array.isArray(res.data.rejectedSamples) && res.data.rejectedSamples.length > 0
+        ? ` Rejections: ${res.data.rejectedSamples.map((sample) => `#${sample.sampleIndex} ${sample.message}`).join(" | ")}`
+        : "";
+      setFaceMsg(`${res.data.message || res.data.status || "Face verification complete."}${confidenceText}${thresholdText}${topCandidateText}${rejectedText}`);
     }
     if (res.ok) onRefresh();
   }
@@ -634,6 +766,19 @@ function StationView({ token, stationStatus, latestEvent, conflictCount, station
     syncDevices().catch(() => {});
     return () => stopCam();
   }, [syncDevices]);
+
+  useEffect(() => {
+    if (!camActive || faceLoading) {
+      return undefined;
+    }
+
+    analyzeCurrentFrame(true).catch(() => {});
+    const id = setInterval(() => {
+      analyzeCurrentFrame(true).catch(() => {});
+    }, 3000);
+
+    return () => clearInterval(id);
+  }, [camActive, faceLoading, token]);
 
   const eventTone = latestEvent?.event_type === "attendance.check_in" ? "success"
     : latestEvent?.event_type === "attendance.check_out" ? "warning"
@@ -766,6 +911,8 @@ function StationView({ token, stationStatus, latestEvent, conflictCount, station
               </label>
             </div>
 
+            {liveFaceAnalysis && <FaceQualityPanel analysis={liveFaceAnalysis} />}
+
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {!camActive
                 ? <button className="btn btn-secondary" onClick={startCam}><Icon.Camera />Start Camera</button>
@@ -790,6 +937,7 @@ function EmployeesView({ token, employees, onRefreshEmployees }) {
   const [fingerprints, setFingerprints] = useState([]);
   const [fpPlan, setFpPlan] = useState(null);
   const [conflicts, setConflicts] = useState({ exactDuplicates: [], recentConflicts: [] });
+  const [faceConflicts, setFaceConflicts] = useState({ activeConflicts: [], recentConflicts: [] });
   const [form, setForm] = useState({ id: null, employeeCode: "", name: "", cnic: "", department: "", designation: "", status: "active", profileImage: "" });
   const [msg, setMsg] = useState("");
   const [msgType, setMsgType] = useState("info");
@@ -804,6 +952,8 @@ function EmployeesView({ token, employees, onRefreshEmployees }) {
   const [videoDevices, setVideoDevices] = useState([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
   const [faceSamples, setFaceSamples] = useState([]);
+  const [faceCaptureAnalyzing, setFaceCaptureAnalyzing] = useState(false);
+  const [lastFaceAnalysis, setLastFaceAnalysis] = useState(null);
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
@@ -816,6 +966,9 @@ function EmployeesView({ token, employees, onRefreshEmployees }) {
 
   async function loadEmployee(emp) {
     setSelected(emp);
+    setLastFaceAnalysis(null);
+    setFaceMsg("");
+    setFaceSamples([]);
     setForm({
       id: emp.id,
       employeeCode: emp.employee_code || "",
@@ -826,23 +979,29 @@ function EmployeesView({ token, employees, onRefreshEmployees }) {
       status: emp.status || "active",
       profileImage: emp.profile_image || "",
     });
-    const [hist, fps, plan, conf] = await Promise.all([
+    const [hist, fps, plan, conf, faceConf] = await Promise.all([
       api(`/api/employees/${emp.id}/attendance`, {}, token),
       api(`/api/employees/${emp.id}/fingerprints`, {}, token),
       api(`/api/employees/${emp.id}/fingerprint-plan`, {}, token),
       api(`/api/biometrics/fingerprint/conflicts?employeeId=${emp.id}`, {}, token),
+      api(`/api/biometrics/face/conflicts?employeeId=${emp.id}`, {}, token),
     ]);
     if (hist.ok) setHistory(hist.data);
     if (fps.ok) setFingerprints(fps.data);
     if (plan.ok) setFpPlan(plan.data);
     if (conf.ok) setConflicts(conf.data);
+    if (faceConf.ok) setFaceConflicts(faceConf.data);
   }
 
   function resetForm() {
     setSelected(null);
     setHistory([]); setFingerprints([]); setFpPlan(null);
     setConflicts({ exactDuplicates: [], recentConflicts: [] });
+    setFaceConflicts({ activeConflicts: [], recentConflicts: [] });
     setMsg(""); setCamErr(""); setFaceMsg("");
+    setFaceCaptureAnalyzing(false);
+    setLastFaceAnalysis(null);
+    setFaceSamples([]);
     setForm({ id: null, employeeCode: "", name: "", cnic: "", department: "", designation: "", status: "active", profileImage: "" });
   }
 
@@ -889,6 +1048,61 @@ function EmployeesView({ token, employees, onRefreshEmployees }) {
     loadEmployee(selected);
   }
 
+  async function deleteFaceProfile(empId) {
+    if (!confirm("Clear this employee's face profile? They will need to be re-enrolled.")) return;
+    const res = await api(`/api/employees/${empId}/face-profile`, { method: "DELETE" }, token);
+    if (!res.ok) {
+      setFaceMsg(res.data.message || "Could not clear the face profile.");
+      return;
+    }
+    setFaceMsg("Face profile cleared. Capture fresh samples and enroll again.");
+    setFaceSamples([]);
+    setLastFaceAnalysis(null);
+    await onRefreshEmployees();
+    const fresh = await api(`/api/employees/${empId}`, {}, token);
+    if (fresh.ok) {
+      await loadEmployee(fresh.data);
+    }
+  }
+
+  async function clearFingerprintConflictHistory(empId) {
+    const res = await api("/api/biometrics/fingerprint/conflicts/resolve", {
+      method: "POST",
+      body: JSON.stringify({ employeeId: empId })
+    }, token);
+
+    if (!res.ok) {
+      setMsg(res.data.message || "Could not clear fingerprint conflict history.");
+      setMsgType("danger");
+      return;
+    }
+
+    setMsg(`Cleared ${res.data.clearedCount || 0} fingerprint conflict record(s).`);
+    setMsgType("success");
+    const fresh = await api(`/api/biometrics/fingerprint/conflicts?employeeId=${empId}`, {}, token);
+    if (fresh.ok) {
+      setConflicts(fresh.data);
+    }
+  }
+
+  async function clearFaceConflictHistory(empId) {
+    const res = await api("/api/biometrics/face/conflicts/resolve", {
+      method: "POST",
+      body: JSON.stringify({ employeeId: empId })
+    }, token);
+
+    if (!res.ok) {
+      setFaceMsg(res.data.message || "Could not clear face conflict history.");
+      return;
+    }
+
+    setFaceMsg(`Cleared ${res.data.clearedCount || 0} face conflict record(s).`);
+    const fresh = await api(`/api/biometrics/face/conflicts?employeeId=${empId}`, {}, token);
+    if (fresh.ok) {
+      setFaceConflicts(fresh.data);
+    }
+  }
+
   async function startCam() {
     setCamErr("");
     try {
@@ -908,14 +1122,18 @@ function EmployeesView({ token, employees, onRefreshEmployees }) {
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
+    setFaceCaptureAnalyzing(false);
     setCamActive(false);
   }
 
   async function enrollFace() {
     if (!selected?.id) { setFaceMsg("Select an employee first."); return; }
-    const currentFrame = captureVideoFrame(videoRef.current);
-    const samples = faceSamples.length > 0 ? faceSamples : (currentFrame ? [currentFrame] : []);
-    if (samples.length === 0) { setFaceMsg("Start the camera and capture at least one face sample."); return; }
+    if (faceSamples.length < FACE_ENROLL_MIN_SAMPLES) {
+      setFaceMsg(`Capture at least ${FACE_ENROLL_MIN_SAMPLES} face samples before enrollment for a reliable profile.`);
+      return;
+    }
+
+    const samples = faceSamples.slice(-FACE_ENROLL_MAX_SAMPLES);
 
     const res = await api("/api/biometrics/face/enroll", {
       method: "POST",
@@ -939,21 +1157,57 @@ function EmployeesView({ token, employees, onRefreshEmployees }) {
       return;
     }
 
+    if (res.status === 409 && res.data.conflict) {
+      setFaceMsg(`${res.data.message} Similar employee: ${res.data.conflict.name} (#${res.data.conflict.employeeId}), distance ${res.data.conflict.distance}.`);
+      const freshFaceConflicts = await api(`/api/biometrics/face/conflicts?employeeId=${selected.id}`, {}, token);
+      if (freshFaceConflicts.ok) {
+        setFaceConflicts(freshFaceConflicts.data);
+      }
+      return;
+    }
+
     const rejectedText = Array.isArray(res.data.rejectedSamples) && res.data.rejectedSamples.length > 0
       ? ` Rejections: ${res.data.rejectedSamples.map((sample) => `#${sample.sampleIndex} ${sample.message}`).join(" | ")}`
       : "";
     setFaceMsg(`${res.data.message || res.data.status || "Done."}${rejectedText}`);
   }
 
-  function captureFaceSample() {
+  async function captureFaceSample() {
     const frame = captureVideoFrame(videoRef.current);
     if (!frame) {
       setFaceMsg("Start the camera first.");
       return;
     }
 
-    setFaceSamples((current) => [...current.slice(-3), frame]);
-    setFaceMsg(`Captured ${Math.min(faceSamples.length + 1, 4)} face sample(s). Capture at least 3 for stronger enrollment.`);
+    setFaceCaptureAnalyzing(true);
+    setFaceMsg("Analyzing captured frame...");
+
+    const res = await api("/api/biometrics/face/analyze", {
+      method: "POST",
+      body: JSON.stringify({ imageBase64: frame })
+    }, token);
+
+    setFaceCaptureAnalyzing(false);
+
+    if (!res.ok) {
+      const blur = res.data?.quality?.blurVariance;
+      const detail = typeof blur === "number" ? ` Sharpness ${blur.toFixed(1)}.` : "";
+      setLastFaceAnalysis({ quality: res.data?.quality || null, warnings: [], message: res.data.message || "Face sample rejected." });
+      setFaceMsg(`${res.data.message || "Face sample rejected."}${detail}`);
+      return;
+    }
+
+    const next = [...faceSamples.slice(-(FACE_ENROLL_MAX_SAMPLES - 1)), frame];
+    setFaceSamples(next);
+    setLastFaceAnalysis(res.data);
+
+    const blur = res.data?.quality?.blurVariance;
+    const warnings = Array.isArray(res.data?.warnings) && res.data.warnings.length > 0
+      ? ` ${res.data.warnings.join(" ")}`
+      : "";
+    const blurText = typeof blur === "number" ? ` Sharpness ${blur.toFixed(1)}.` : "";
+
+    setFaceMsg(`Captured ${next.length} face sample(s).${blurText}${warnings}`);
   }
 
   useEffect(() => {
@@ -967,7 +1221,8 @@ function EmployeesView({ token, employees, onRefreshEmployees }) {
     return () => stopCam();
   }, []);
 
-  const conflictCount = (conflicts.exactDuplicates?.length || 0) + (conflicts.recentConflicts?.length || 0);
+  const activeConflictCount = conflicts.exactDuplicates?.length || 0;
+  const historicalConflictCount = conflicts.recentConflicts?.length || 0;
 
   return (
     <div className="view">
@@ -1107,10 +1362,22 @@ function EmployeesView({ token, employees, onRefreshEmployees }) {
                   </div>
                 </div>
                 <div className="panel-body">
-                  {conflictCount > 0 && (
+                  {activeConflictCount > 0 && (
                     <Banner type="danger">
-                      {conflictCount} conflict signal{conflictCount > 1 ? "s" : ""} detected for this employee. Remove duplicate fingerprint slots before using global verification.
+                      {activeConflictCount} active fingerprint conflict{activeConflictCount > 1 ? "s" : ""} detected for this employee. Remove or re-enroll the duplicate slot before using global verification.
                     </Banner>
+                  )}
+                  {activeConflictCount === 0 && historicalConflictCount > 0 && (
+                    <Banner type="warning">
+                      {historicalConflictCount} historical fingerprint conflict log{historicalConflictCount > 1 ? "s" : ""} found for this employee, but no active duplicate template is blocking verification right now.
+                    </Banner>
+                  )}
+                  {activeConflictCount === 0 && historicalConflictCount > 0 && (
+                    <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => clearFingerprintConflictHistory(selected.id)}>
+                        <Icon.CheckCircle />Clear FP Conflict History
+                      </button>
+                    </div>
                   )}
 
                   {fpPlan && (
@@ -1192,6 +1459,23 @@ function EmployeesView({ token, employees, onRefreshEmployees }) {
                   </span>
                 </div>
                 <div className="panel-body">
+                  {faceConflicts.activeConflicts?.length > 0 && (
+                    <Banner type="danger">
+                      {faceConflicts.activeConflicts.length} active face conflict{faceConflicts.activeConflicts.length > 1 ? "s" : ""} detected for this employee. Review the similar employee profile before using or re-enrolling this face.
+                    </Banner>
+                  )}
+                  {faceConflicts.activeConflicts?.length === 0 && faceConflicts.recentConflicts?.length > 0 && (
+                    <Banner type="warning">
+                      {faceConflicts.recentConflicts.length} historical face conflict log{faceConflicts.recentConflicts.length > 1 ? "s" : ""} found for this employee, but no active duplicate face profile is blocking enrollment right now.
+                    </Banner>
+                  )}
+                  {faceConflicts.activeConflicts?.length === 0 && faceConflicts.recentConflicts?.length > 0 && (
+                    <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => clearFaceConflictHistory(selected.id)}>
+                        <Icon.CheckCircle />Clear Face Conflict History
+                      </button>
+                    </div>
+                  )}
                   <div className={`camera-wrap ${camActive ? "camera-active" : ""}`}>
                     <video ref={videoRef} autoPlay muted playsInline />
                     {!camActive && (
@@ -1206,6 +1490,7 @@ function EmployeesView({ token, employees, onRefreshEmployees }) {
                   </div>
                   {camErr && <Banner type="danger">{camErr}</Banner>}
                   {faceMsg && <Banner type="info">{faceMsg}</Banner>}
+                  {lastFaceAnalysis && <FaceQualityPanel analysis={lastFaceAnalysis} />}
                   <div className="camera-toolbar">
                     <label className="camera-select">
                       <span>Camera</span>
@@ -1219,7 +1504,7 @@ function EmployeesView({ token, employees, onRefreshEmployees }) {
                       </select>
                     </label>
                     <div className="sample-count">
-                      Samples: <strong>{faceSamples.length}</strong> / 4
+                      Samples: <strong>{faceSamples.length}</strong> / {FACE_ENROLL_MAX_SAMPLES}
                     </div>
                   </div>
                   {faceSamples.length > 0 && (
@@ -1233,15 +1518,20 @@ function EmployeesView({ token, employees, onRefreshEmployees }) {
                     {!camActive
                       ? <button className="btn btn-secondary btn-sm" onClick={startCam}><Icon.Camera />Start Camera</button>
                       : <button className="btn btn-ghost btn-sm" onClick={stopCam}><Icon.CameraOff />Stop</button>}
-                    <button className="btn btn-secondary btn-sm" onClick={captureFaceSample} disabled={!camActive}>
-                      <Icon.Camera />Capture Sample
+                    <button className="btn btn-secondary btn-sm" onClick={captureFaceSample} disabled={!camActive || faceCaptureAnalyzing}>
+                      <Icon.Camera />{faceCaptureAnalyzing ? "Checking..." : "Capture Sample"}
                     </button>
                     <button className="btn btn-ghost btn-sm" onClick={() => setFaceSamples([])} disabled={faceSamples.length === 0}>
                       <Icon.Trash />Clear Samples
                     </button>
-                    <button className="btn btn-primary btn-sm" onClick={enrollFace} disabled={!camActive}>
+                    <button className="btn btn-primary btn-sm" onClick={enrollFace} disabled={!camActive || faceCaptureAnalyzing || faceSamples.length < FACE_ENROLL_MIN_SAMPLES}>
                       <Icon.Face />Enroll Face
                     </button>
+                    {selected.has_face && (
+                      <button className="btn btn-danger btn-sm" onClick={() => deleteFaceProfile(selected.id)}>
+                        <Icon.Trash />Clear Face Profile
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1430,6 +1720,7 @@ function AuditView({ token }) {
   const eventColor = (type) => {
     if (type?.startsWith("attendance.check_in")) return "badge-success";
     if (type?.startsWith("attendance.check_out")) return "badge-warning";
+    if (type?.includes(".conflict.cleared")) return "badge-success";
     if (type?.includes("conflict")) return "badge-danger";
     if (type?.includes("delete")) return "badge-danger";
     if (type?.includes("create") || type?.includes("enroll")) return "badge-info";
@@ -1508,7 +1799,8 @@ export default function App() {
   const [stationMsg, setStationMsg] = useState("");
   const [conflicts, setConflicts] = useState({ exactDuplicates: [], recentConflicts: [] });
 
-  const conflictCount = (conflicts.exactDuplicates?.length || 0) + (conflicts.recentConflicts?.length || 0);
+  const activeConflictCount = conflicts.exactDuplicates?.length || 0;
+  const historicalConflictCount = conflicts.recentConflicts?.length || 0;
 
   /* ── Auth ── */
   useEffect(() => {
@@ -1601,7 +1893,7 @@ export default function App() {
         onLogout={handleLogout}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(c => !c)}
-        conflictCount={conflictCount}
+        conflictCount={activeConflictCount}
         mobileOpen={mobileOpen}
         onOverlayClick={() => setMobileOpen(false)}
       />
@@ -1618,7 +1910,7 @@ export default function App() {
           <DashboardView
             overview={overview}
             auditRows={auditRows}
-            conflictCount={conflictCount}
+            conflictCount={activeConflictCount}
             onRefresh={refreshOverview}
           />
         )}
@@ -1628,7 +1920,7 @@ export default function App() {
             token={token}
             stationStatus={stationStatus}
             latestEvent={latestEvent}
-            conflictCount={conflictCount}
+            conflictCount={activeConflictCount}
             stationMsg={stationMsg}
             onRefresh={refreshOverview}
             onLaunchVerify={launchVerify}

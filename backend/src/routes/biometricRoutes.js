@@ -2,7 +2,8 @@ import { Router } from "express";
 import pool from "../config/db.js";
 import { requireAuth, requireRole } from "../middleware/authMiddleware.js";
 import { markAttendance } from "../services/attendanceService.js";
-import { logAudit } from "../services/auditService.js";
+import { clearAuditEvents, logAudit } from "../services/auditService.js";
+import { findDuplicateFaceEnrollment, listPotentialFaceConflicts } from "../services/faceProfileService.js";
 import { listPotentialFingerprintConflicts, upsertFingerprintTemplate } from "../services/fingerprintService.js";
 
 const router = Router();
@@ -83,6 +84,49 @@ router.get("/fingerprint/conflicts", requireAuth, requireRole("admin", "operator
       status: "ok",
       exactDuplicates,
       recentConflicts
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.post("/fingerprint/conflicts/resolve", requireAuth, requireRole("admin", "operator"), async (req, res) => {
+  try {
+    const employeeId = req.body?.employeeId ? Number(req.body.employeeId) : null;
+    if (!employeeId) {
+      return res.status(400).json({ message: "employeeId is required" });
+    }
+
+    const activeConflicts = await listPotentialFingerprintConflicts(employeeId);
+    if (activeConflicts.length > 0) {
+      return res.status(409).json({
+        status: "blocked",
+        message: "Active fingerprint conflicts still exist for this employee. Re-enroll or remove duplicate slots before clearing conflict history.",
+        activeConflictCount: activeConflicts.length
+      });
+    }
+
+    const clearedCount = await clearAuditEvents({
+      eventType: "fingerprint.conflict",
+      targetId: employeeId
+    });
+
+    await logAudit({
+      actorUserId: req.user.id,
+      eventType: "fingerprint.conflict.cleared",
+      targetType: "employee",
+      targetId: employeeId,
+      summary: `Fingerprint conflict history cleared for employee #${employeeId}.`,
+      metadata: {
+        employeeId,
+        clearedCount
+      }
+    });
+
+    res.json({
+      status: "cleared",
+      employeeId,
+      clearedCount
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -183,6 +227,89 @@ router.get("/face/status", async (_req, res) => {
       message: "Face service is not running yet. Start the Python face-service after installing its dependencies.",
       detail: error.message
     });
+  }
+});
+
+router.get("/face/conflicts", requireAuth, requireRole("admin", "operator"), async (req, res) => {
+  try {
+    const employeeId = req.query.employeeId ? Number(req.query.employeeId) : null;
+    const activeConflicts = await listPotentialFaceConflicts(employeeId);
+
+    const [auditRows] = await pool.query(
+      `SELECT
+         id,
+         event_type,
+         target_id,
+         summary,
+         metadata,
+         created_at
+       FROM audit_logs
+       WHERE event_type = 'face.conflict'
+         AND (? IS NULL OR target_id = ?)
+       ORDER BY id DESC
+       LIMIT 25`,
+      [employeeId, employeeId === null ? null : String(employeeId)]
+    );
+
+    const recentConflicts = auditRows.map((row) => ({
+      id: row.id,
+      eventType: row.event_type,
+      targetId: row.target_id === null ? null : Number(row.target_id),
+      summary: row.summary,
+      metadata: row.metadata ? JSON.parse(row.metadata) : null,
+      createdAt: row.created_at
+    }));
+
+    res.json({
+      status: "ok",
+      activeConflicts,
+      recentConflicts
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.post("/face/conflicts/resolve", requireAuth, requireRole("admin", "operator"), async (req, res) => {
+  try {
+    const employeeId = req.body?.employeeId ? Number(req.body.employeeId) : null;
+    if (!employeeId) {
+      return res.status(400).json({ message: "employeeId is required" });
+    }
+
+    const activeConflicts = await listPotentialFaceConflicts(employeeId);
+    if (activeConflicts.length > 0) {
+      return res.status(409).json({
+        status: "blocked",
+        message: "Active face conflicts still exist for this employee. Re-enroll or clear the conflicting face profile before clearing conflict history.",
+        activeConflictCount: activeConflicts.length
+      });
+    }
+
+    const clearedCount = await clearAuditEvents({
+      eventType: "face.conflict",
+      targetId: employeeId
+    });
+
+    await logAudit({
+      actorUserId: req.user.id,
+      eventType: "face.conflict.cleared",
+      targetType: "employee",
+      targetId: employeeId,
+      summary: `Face conflict history cleared for employee #${employeeId}.`,
+      metadata: {
+        employeeId,
+        clearedCount
+      }
+    });
+
+    res.json({
+      status: "cleared",
+      employeeId,
+      clearedCount
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 });
 
@@ -510,7 +637,7 @@ router.post("/face/enroll", async (req, res) => {
     }
 
     const faceProfile = {
-      version: "2.0",
+      version: "2.1",
       provider: "face_recognition",
       threshold: data.threshold ?? null,
       sampleCount: data.sampleCount ?? 1,
@@ -521,11 +648,39 @@ router.post("/face/enroll", async (req, res) => {
       enrolledAt: new Date().toISOString()
     };
 
+    const duplicateMatch = await findDuplicateFaceEnrollment({
+      employeeId,
+      faceProfile
+    });
+
+    if (duplicateMatch) {
+      await logAudit({
+        actorUserId: req.user?.id || null,
+        eventType: "face.conflict",
+        targetType: "employee",
+        targetId: employeeId,
+        summary: `Face enrollment for employee #${employeeId} was blocked because it is too similar to employee #${duplicateMatch.employeeId}.`,
+        metadata: {
+          employeeId,
+          conflictingEmployeeId: duplicateMatch.employeeId,
+          conflictingEmployeeName: duplicateMatch.name,
+          distance: duplicateMatch.distance,
+          threshold: duplicateMatch.threshold
+        }
+      });
+
+      return res.status(409).json({
+        status: "conflict",
+        message: `This face profile is too similar to ${duplicateMatch.name} (#${duplicateMatch.employeeId}). Re-enroll the correct employee with fresh samples before saving.`,
+        conflict: duplicateMatch
+      });
+    }
+
     await pool.query(
       `UPDATE employees
        SET face_encoding = ?, profile_image = COALESCE(?, profile_image)
        WHERE id = ?`,
-      [JSON.stringify(faceProfile), profileImage || data.profileImage || null, employeeId]
+      [JSON.stringify(faceProfile), data.profileImage || profileImage || null, employeeId]
     );
 
     await logAudit({
@@ -534,6 +689,7 @@ router.post("/face/enroll", async (req, res) => {
       targetId: employeeId,
       summary: `Face encoding enrolled for employee #${employeeId}.`,
       metadata: {
+        actorUserId: req.user?.id || null,
         employeeId,
         sampleCount: faceProfile.sampleCount,
         rejectedSamples: faceProfile.rejectedSamples.length,
@@ -553,11 +709,32 @@ router.post("/face/enroll", async (req, res) => {
   }
 });
 
-router.post("/face/verify", async (req, res) => {
-  const { imageBase64 } = req.body;
+router.post("/face/analyze", async (req, res) => {
+  const { imageBase64 } = req.body || {};
 
   if (!imageBase64) {
     return res.status(400).json({ message: "imageBase64 is required" });
+  }
+
+  try {
+    const response = await fetch(`${process.env.FACE_SERVICE_URL || "http://127.0.0.1:5000"}/analyze-face`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imageBase64 })
+    });
+
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (error) {
+    res.status(503).json({ message: error.message });
+  }
+});
+
+router.post("/face/verify", async (req, res) => {
+  const { imageBase64, samples = [] } = req.body || {};
+
+  if (!imageBase64 && (!Array.isArray(samples) || samples.length === 0)) {
+    return res.status(400).json({ message: "imageBase64 or samples are required" });
   }
 
   try {
@@ -594,7 +771,7 @@ router.post("/face/verify", async (req, res) => {
     const response = await fetch(`${process.env.FACE_SERVICE_URL || "http://127.0.0.1:5000"}/verify-face`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ imageBase64, candidates })
+      body: JSON.stringify({ imageBase64, samples, candidates })
     });
 
     const data = await response.json();
@@ -631,6 +808,8 @@ router.post("/face/verify", async (req, res) => {
       employee,
       score: data.score ?? null,
       confidence: data.confidence ?? null,
+      probeCount: data.probeCount ?? null,
+      rejectedSamples: data.rejectedSamples || [],
       attendance
     });
   } catch (error) {

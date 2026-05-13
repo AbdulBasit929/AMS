@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS employees (
     status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     fingerprint LONGBLOB NULL,
     face_encoding LONGTEXT NULL,
-    profile_image VARCHAR(255) NULL,
+    profile_image LONGTEXT NULL,
     created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),

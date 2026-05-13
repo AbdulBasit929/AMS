@@ -26,7 +26,6 @@ router.get("/", requireAuth, async (req, res) => {
        e.department,
        e.designation,
        e.status,
-       e.profile_image,
        e.created_at,
        e.updated_at,
        (COALESCE(fp.fingerprint_count, 0) > 0 OR e.fingerprint IS NOT NULL) AS has_fingerprint,
@@ -148,6 +147,31 @@ router.delete("/:id/fingerprints/:fingerprintId", requireAuth, requireRole("admi
     status: "deleted",
     fingerprintId: Number(req.params.fingerprintId),
     fingerCode: result.finger_code
+  });
+});
+
+router.delete("/:id/face-profile", requireAuth, requireRole("admin", "operator"), async (req, res) => {
+  await pool.query(
+    `UPDATE employees
+     SET face_encoding = NULL
+     WHERE id = ?`,
+    [req.params.id]
+  );
+
+  await logAudit({
+    actorUserId: req.user.id,
+    eventType: "face.delete",
+    targetType: "employee",
+    targetId: req.params.id,
+    summary: `Face profile cleared for employee #${req.params.id}.`,
+    metadata: {
+      employeeId: Number(req.params.id)
+    }
+  });
+
+  res.json({
+    status: "deleted",
+    employeeId: Number(req.params.id)
   });
 });
 

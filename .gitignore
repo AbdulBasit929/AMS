@@ -36,3 +36,22 @@ Thumbs.db
 # Misc
 *.class
 *.jar
+
+# Python runtime/cache
+.pydeps312/
+.pydeps312-packages/
+.tmp-py312/
+_runtime/
+.venv/
+.venv312/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# .NET build
+bin/
+obj/
+
+# Logs
+*.log

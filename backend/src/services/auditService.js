@@ -26,3 +26,25 @@ export async function logAudit({
     ]
   );
 }
+
+export async function clearAuditEvents({
+  eventType,
+  targetId = null
+}) {
+  if (!eventType) {
+    return 0;
+  }
+
+  const [result] = await pool.query(
+    `DELETE FROM audit_logs
+     WHERE event_type = ?
+       AND (? IS NULL OR target_id = ?)`,
+    [
+      eventType,
+      targetId === null ? null : String(targetId),
+      targetId === null ? null : String(targetId)
+    ]
+  );
+
+  return result.affectedRows || 0;
+}

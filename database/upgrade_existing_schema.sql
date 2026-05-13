@@ -17,6 +17,22 @@ PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
+SET @profile_image_type = (
+    SELECT DATA_TYPE
+    FROM information_schema.columns
+    WHERE table_schema = @db_name
+      AND table_name = 'employees'
+      AND column_name = 'profile_image'
+    LIMIT 1
+);
+SET @sql = IF(@profile_image_type IS NOT NULL AND @profile_image_type NOT IN ('text', 'mediumtext', 'longtext'),
+    'ALTER TABLE employees MODIFY COLUMN profile_image LONGTEXT NULL',
+    'SELECT ''employees.profile_image already supports base64 image data'''
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
 SET @exists = (
     SELECT COUNT(*)
     FROM information_schema.columns
